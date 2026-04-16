@@ -233,7 +233,7 @@ MonoBehaviour:
     - {fileID: 5282148336935182650, guid: f8ad909e149c1446297c8062039d9a96, type: 3}
     - {fileID: 304664555959946235, guid: 8fd37c767d7d242c181d290012a19cac, type: 3}
   pieceParent: {fileID: 41782810}
-  bottomParent: {fileID: 0}
+  bottomParent: {fileID: 1228281908}
   spacing: 1.5
   moveSpeed: 8
   moveDelay: 1.5

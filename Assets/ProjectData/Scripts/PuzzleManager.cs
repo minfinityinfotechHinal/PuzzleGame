@@ -26,11 +26,11 @@ public class PuzzleManager : MonoBehaviour
     void Start()
     {
         SpawnPieces();
-     //   StartCoroutine(MoveToBottomAreaAfterDelay());
+         StartCoroutine(MoveToBottomAreaAfterDelay());
     }
 
     // ---------------- SELECT PREFABS ----------------
-   Vector3 GetSlotPosition(int index)
+Vector3 GetSlotPosition(int index)
 {
     int count = bottomPieces.Count;
 
@@ -39,7 +39,10 @@ public class PuzzleManager : MonoBehaviour
 
     float x = startX + index * spacing;
 
-    return bottomParent.position + new Vector3(x, 0f, 0f);
+    // 🔥 force consistent Y (important)
+    float y = 0f;
+
+    return bottomParent.position + new Vector3(x, y, 0f);
 }
     // ---------------- SPAWN ----------------
     void SpawnPieces()
@@ -68,6 +71,19 @@ public class PuzzleManager : MonoBehaviour
         }
     }
 
+    Vector2 GetSlotPositionUI(int index)
+{
+    int count = bottomPieces.Count;
+
+    float totalWidth = (count - 1) * spacing;
+    float startX = -totalWidth / 2f;
+
+    float x = startX + index * spacing;
+    float y = 0f;
+
+    return new Vector2(x, y);
+}
+
     GameObject[] GetSelectedPrefabs()
     {
         foreach (var set in puzzleSets)
@@ -83,11 +99,33 @@ public class PuzzleManager : MonoBehaviour
     // ---------------- MOVE TO BOTTOM AFTER DELAY ----------------
     IEnumerator MoveToBottomAreaAfterDelay()
     {
+        // 🔥 WAIT so original layout is visible
+        yield return new WaitForSeconds(1f);
+
+        // 🔥 THEN scatter
+        for (int i = 0; i < spawnedPieces.Length; i++)
+        {
+            Vector3 randomPos = pieceParent.position + new Vector3(
+                Random.Range(-3f, 3f),
+                Random.Range(-2f, 2f),
+                0f
+            );
+
+            RectTransform rect = spawnedPieces[i].GetComponent<RectTransform>();
+
+            rect.anchoredPosition = new Vector2(
+                Random.Range(-300f, 300f),
+                Random.Range(-200f, 200f)
+            );
+        }
+
         yield return new WaitForSeconds(moveDelay);
 
+        // 🔥 Move to bottom
         for (int i = 0; i < spawnedPieces.Length; i++)
         {
             AddToBottom(spawnedPieces[i]);
+            yield return new WaitForSeconds(0.05f);
         }
     }
 
@@ -98,7 +136,7 @@ public class PuzzleManager : MonoBehaviour
 
         bottomPieces.Add(piece);
 
-        piece.transform.SetParent(bottomParent, true);
+       piece.transform.SetParent(bottomParent, false);
 
         StartCoroutine(MoveToSlot(piece));
     }
@@ -107,18 +145,19 @@ public class PuzzleManager : MonoBehaviour
     {
         int index = bottomPieces.IndexOf(piece);
 
-        Vector3 start = piece.transform.position;
-        Vector3 target = GetSlotPosition(index);
+        RectTransform rect = piece.GetComponent<RectTransform>();
+
+        Vector2 start = rect.anchoredPosition;
+        Vector2 target = GetSlotPositionUI(index);
 
         float t = 0f;
 
         while (t < 1f)
         {
             t += Time.deltaTime * moveSpeed;
-            piece.transform.position = Vector3.Lerp(start, target, t);
+            rect.anchoredPosition = Vector2.Lerp(start, target, t);
             yield return null;
         }
-
         piece.transform.position = target;
     }
 
