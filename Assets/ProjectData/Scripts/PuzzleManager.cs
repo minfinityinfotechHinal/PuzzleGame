@@ -58,7 +58,11 @@ public class PuzzleManager : MonoBehaviour
             obj.transform.SetParent(pieceParent, false);
 
             PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
-            piece.SetImageOffset(i, rows, cols);
+
+            if (piece != null)
+            {
+                piece.Setup(i); // ✅ assign unique stencil
+            }
 
             spawnedPieces[i] = obj;
         }

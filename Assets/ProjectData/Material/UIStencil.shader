@@ -1,29 +1,27 @@
-Shader "UI/ContentStencil"
+Shader "Custom/UIStencil"
 {
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-        _StencilID ("Stencil ID", Float) = 1
+        _Color ("Color", Color) = (1,1,1,1)
+        _StencilRef ("Stencil Ref", Float) = 1
+        _StencilComp ("Stencil Comp", Float) = 8 // Equal
+        _StencilOp ("Stencil Op", Float) = 2     // Keep
     }
 
     SubShader
     {
-        Tags 
-        { 
-            "Queue"="Transparent" 
-            "IgnoreProjector"="True"
-            "RenderType"="Transparent"
-            "CanUseSpriteAtlas"="True"
-        }
+        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
 
+        Cull Off
         ZWrite Off
         Blend SrcAlpha OneMinusSrcAlpha
 
         Stencil
         {
-            Ref [_StencilID]
-            Comp Equal
-            Pass Keep
+            Ref [_StencilRef]
+            Comp [_StencilComp]
+            Pass [_StencilOp]
         }
 
         Pass
@@ -31,36 +29,33 @@ Shader "UI/ContentStencil"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #include "UnityCG.cginc"
 
             sampler2D _MainTex;
+            fixed4 _Color;
 
             struct appdata
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
-                float4 color : COLOR;
             };
 
             struct v2f
             {
-                float4 pos : SV_POSITION;
+                float4 vertex : SV_POSITION;
                 float2 uv : TEXCOORD0;
-                float4 color : COLOR;
             };
 
-            v2f vert(appdata v)
+            v2f vert (appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
+                o.vertex = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
-                o.color = v.color;
                 return o;
             }
 
-            fixed4 frag(v2f i) : SV_Target
+            fixed4 frag (v2f i) : SV_Target
             {
-                return tex2D(_MainTex, i.uv);
+                return tex2D(_MainTex, i.uv) * _Color;
             }
             ENDCG
         }

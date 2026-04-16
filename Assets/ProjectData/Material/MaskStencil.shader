@@ -1,17 +1,25 @@
-Shader "Custom/MaskStencil"
+Shader "UI/MaskStencil"
 {
     Properties
     {
         _MainTex ("Sprite", 2D) = "white" {}
         _StencilID ("Stencil ID", Float) = 1
+        _Cutoff ("Alpha Cutoff", Range(0,1)) = 0.9
     }
 
     SubShader
     {
-        Tags { "Queue"="Geometry-1" }
+        Tags 
+        { 
+            "Queue"="Transparent" 
+            "IgnoreProjector"="True"
+            "RenderType"="Transparent"
+            "CanUseSpriteAtlas"="True"
+        }
 
-        // Don't render color
         ColorMask 0
+        ZWrite Off
+        Blend SrcAlpha OneMinusSrcAlpha
 
         Stencil
         {
@@ -28,17 +36,20 @@ Shader "Custom/MaskStencil"
             #include "UnityCG.cginc"
 
             sampler2D _MainTex;
+            float _Cutoff;
 
             struct appdata
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
+                float4 color : COLOR;
             };
 
             struct v2f
             {
                 float4 pos : SV_POSITION;
                 float2 uv : TEXCOORD0;
+                float4 color : COLOR;
             };
 
             v2f vert(appdata v)
@@ -46,6 +57,7 @@ Shader "Custom/MaskStencil"
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
+                o.color = v.color;
                 return o;
             }
 
@@ -53,8 +65,8 @@ Shader "Custom/MaskStencil"
             {
                 fixed4 col = tex2D(_MainTex, i.uv);
 
-                // 🔥 THIS LINE FIXES YOUR ISSUE
-                clip(col.a - 0.9);
+                // 🔥 smooth clip control
+                clip(col.a - _Cutoff);
 
                 return 0;
             }
