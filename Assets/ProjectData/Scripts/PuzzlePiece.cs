@@ -4,12 +4,13 @@ public class PuzzlePiece : MonoBehaviour
 {
     public SpriteRenderer maskRenderer;
     public SpriteRenderer contentRenderer;
-    public SpriteRenderer shadowRenderer; // 🔥 ADD THIS
+    public SpriteRenderer shadowRenderer;
 
-    // 🔥 Drag & Snap system
+    // 🎯 Drag & Snap
     public Transform targetSlot;
     public float snapDistance = 0.5f;
     public bool isPlaced = false;
+    private Vector3 correctPosition;
 
     private int stencilID;
 
@@ -17,33 +18,63 @@ public class PuzzlePiece : MonoBehaviour
     {
         stencilID = index + 1;
 
-        // Create unique material instances
-        Material maskMat = maskRenderer.material;
-        Material contentMat = contentRenderer.material;
+        // 🔥 Clone materials (IMPORTANT)
+        maskRenderer.material = new Material(maskRenderer.material);
+        contentRenderer.material = new Material(contentRenderer.material);
 
-        maskMat.SetFloat("_StencilID", stencilID);
-        contentMat.SetFloat("_StencilID", stencilID);
-
-        // 🔥 Apply to shadow also (IMPORTANT)
         if (shadowRenderer != null)
-        {
-            Material shadowMat = shadowRenderer.material;
-            shadowMat.SetFloat("_StencilID", stencilID);
-        }
+            shadowRenderer.material = new Material(shadowRenderer.material);
 
-        Debug.Log(gameObject.name + " Stencil ID: " + stencilID);
+        // ✅ Assign stencil
+        maskRenderer.material.SetFloat("_StencilID", stencilID);
+        contentRenderer.material.SetFloat("_StencilID", stencilID);
+
+        if (shadowRenderer != null)
+            shadowRenderer.material.SetFloat("_StencilID", stencilID);
     }
 
-    // 🔥 FIXED: proper bring to front
+    public void SetImageOffset(int index, int rows, int cols)
+{
+    int row = index / cols;
+    int col = index % cols;
+
+    float offsetX = (float)col / cols;
+    float offsetY = (float)row / rows;
+
+    float scaleX = 1f / cols;
+    float scaleY = 1f / rows;
+
+    // Apply to material
+    contentRenderer.material.SetTextureScale("_MainTex", new Vector2(scaleX, scaleY));
+    contentRenderer.material.SetTextureOffset("_MainTex", new Vector2(offsetX, offsetY));
+}
+
+    public void StoreCorrectPosition()
+    {
+        correctPosition = transform.position;
+    }
+
+    public bool CanSnap(Vector3 currentPos)
+    {
+        return Vector3.Distance(currentPos, correctPosition) < snapDistance;
+    }
+
+    public void Snap()
+    {
+        transform.position = correctPosition;
+        isPlaced = true;
+    }
+
     public void BringToFront()
     {
         int top = SortingManager.GetTopOrder();
 
         maskRenderer.sortingOrder = top;
-        
-        if (shadowRenderer != null)
-            shadowRenderer.sortingOrder = top + 1;
+        contentRenderer.sortingOrder = top + 1;
 
-        contentRenderer.sortingOrder = top + 1; // 🔥 ALWAYS TOP
+        if (shadowRenderer != null)
+            shadowRenderer.sortingOrder = top + 2; // 👈 shadow on TOP (your requirement)
     }
-    }
+
+    
+}

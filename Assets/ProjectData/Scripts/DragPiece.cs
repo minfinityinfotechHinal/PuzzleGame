@@ -1,68 +1,66 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 
-public class DragPiece : MonoBehaviour
+public class DragPiece : MonoBehaviour,
+    IPointerDownHandler,
+    IDragHandler,
+    IPointerUpHandler
 {
-    private Vector3 offset;
+    private RectTransform rect;
+    private Canvas canvas;
     private PuzzlePiece piece;
-    private Camera cam;
 
-    void Start()
+    private Vector2 offset;
+
+    void Awake()
     {
-        cam = Camera.main;
+        rect = GetComponent<RectTransform>();
+        canvas = GetComponentInParent<Canvas>();
 
         piece = GetComponent<PuzzlePiece>();
-
         if (piece == null)
             piece = GetComponentInParent<PuzzlePiece>();
-
-        if (piece == null)
-            Debug.LogError("PuzzlePiece script NOT found on " + gameObject.name);
     }
 
-    void OnMouseDown()
+    public void OnPointerDown(PointerEventData eventData)
     {
         if (piece == null || piece.isPlaced) return;
 
-        // 🔥 Bring to top
         piece.BringToFront();
 
-        // (Optional) Move out of panel to board
-        // transform.SetParent(piece.boardParent);
-
-        Vector3 mousePos = Input.mousePosition;
-        mousePos.z = cam.WorldToScreenPoint(transform.position).z;
-        mousePos = cam.ScreenToWorldPoint(mousePos);
-
-        offset = transform.position - mousePos;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            rect,
+            eventData.position,
+            eventData.pressEventCamera,
+            out offset
+        );
     }
 
-    void OnMouseDrag()
+    public void OnDrag(PointerEventData eventData)
     {
         if (piece == null || piece.isPlaced) return;
 
-        Vector3 mousePos = Input.mousePosition;
-        mousePos.z = cam.WorldToScreenPoint(transform.position).z;
-        mousePos = cam.ScreenToWorldPoint(mousePos);
+        Vector2 pos;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            canvas.transform as RectTransform,
+            eventData.position,
+            eventData.pressEventCamera,
+            out pos
+        );
 
-        transform.position = mousePos + offset;
+        rect.anchoredPosition = pos - offset;
     }
 
-    void OnMouseUp()
+    public void OnPointerUp(PointerEventData eventData)
     {
         if (piece == null || piece.isPlaced) return;
 
-        // 🎯 SNAP CHECK
-        float dist = Vector3.Distance(transform.position, piece.targetSlot.position);
+        float dist = Vector3.Distance(rect.position, piece.targetSlot.position);
 
         if (dist < piece.snapDistance)
         {
-            // Snap to correct position
-            transform.position = piece.targetSlot.position;
-
+            rect.position = piece.targetSlot.position;
             piece.isPlaced = true;
-
-            // Disable further dragging
-            enabled = false;
         }
     }
 }
