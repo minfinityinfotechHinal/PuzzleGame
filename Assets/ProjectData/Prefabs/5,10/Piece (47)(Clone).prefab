@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 6769434682778364804}
   - component: {fileID: 5394356619205906968}
+  - component: {fileID: -3086014255113446731}
   m_Layer: 5
   m_Name: Piece (47)(Clone)
   m_TagString: Untagged
@@ -54,6 +55,19 @@ MonoBehaviour:
   maskImage: {fileID: 6617557491191414737}
   contentImage: {fileID: 8020239547330132430}
   shadowImage: {fileID: 766622317926018568}
+--- !u!114 &-3086014255113446731
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3478176555496880931}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba653c3496faf46868c31c479fe1c00b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DragPiece
+  isPlaced: 0
 --- !u!1 &3842753781327961409
 GameObject:
   m_ObjectHideFlags: 0

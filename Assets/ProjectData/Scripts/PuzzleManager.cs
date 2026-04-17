@@ -12,77 +12,59 @@ public class PuzzleManager : MonoBehaviour
     public PuzzleSet[] puzzleSets;
 
     [Header("Parents")]
-    public Transform pieceParent;   // spawn area
-    public Transform bottomParent;  // bottom tray root
+    public Transform pieceParent;
+    public Transform bottomParent;
 
     [Header("Bottom Settings")]
-    public float spacing = 1.5f;
+    public float spacing = 150f;
     public float moveSpeed = 8f;
     public float moveDelay = 1.5f;
 
     private GameObject[] spawnedPieces;
-    private List<GameObject> bottomPieces = new List<GameObject>();
+  
+    private Coroutine rearrangeRoutine;
 
+    private int maxVisible = 6;
+    private int nextSpawnIndex = 0;
+    private List<GameObject> allPieces = new List<GameObject>();
+    private List<GameObject> activeBottom = new List<GameObject>();
+    private List<GameObject> bottomPieces = new List<GameObject>();
+    private Dictionary<GameObject, Coroutine> moveRoutines = new Dictionary<GameObject, Coroutine>();
+    
     void Start()
     {
         SpawnPieces();
-         StartCoroutine(MoveToBottomAreaAfterDelay());
+        StartCoroutine(StartFlow());
     }
 
-    // ---------------- SELECT PREFABS ----------------
-Vector3 GetSlotPosition(int index)
-{
-    int count = bottomPieces.Count;
+    // ---------------- START FLOW ----------------
+    IEnumerator StartFlow()
+    {
+        yield return new WaitForSeconds(1f);
+        yield return StartCoroutine(ScatterAndMoveToBottom());
+    }
 
-    float totalWidth = (count - 1) * spacing;
-    float startX = -totalWidth / 2f;
-
-    float x = startX + index * spacing;
-
-    // 🔥 force consistent Y (important)
-    float y = 0f;
-
-    return bottomParent.position + new Vector3(x, y, 0f);
-}
     // ---------------- SPAWN ----------------
     void SpawnPieces()
     {
-        GameObject[] selectedPrefabs = GetSelectedPrefabs();
+        var prefabs = GetSelectedPrefabs();
 
-        if (selectedPrefabs == null || selectedPrefabs.Length == 0)
-            return;
+        spawnedPieces = new GameObject[prefabs.Length];
 
-        spawnedPieces = new GameObject[selectedPrefabs.Length];
-
-        for (int i = 0; i < selectedPrefabs.Length; i++)
+        for (int i = 0; i < prefabs.Length; i++)
         {
-            GameObject obj = Instantiate(selectedPrefabs[i]);
-
-            obj.transform.SetParent(pieceParent, false);
+            GameObject obj = Instantiate(prefabs[i], pieceParent, false);
+            obj.SetActive(true);
 
             PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
-
             if (piece != null)
             {
-                piece.Setup(i); // ✅ assign unique stencil
+                piece.Setup(i); // 🔥 THIS IS REQUIRED
             }
 
             spawnedPieces[i] = obj;
         }
     }
-
-    Vector2 GetSlotPositionUI(int index)
-{
-    int count = bottomPieces.Count;
-
-    float totalWidth = (count - 1) * spacing;
-    float startX = -totalWidth / 2f;
-
-    float x = startX + index * spacing;
-    float y = 0f;
-
-    return new Vector2(x, y);
-}
 
     GameObject[] GetSelectedPrefabs()
     {
@@ -96,108 +78,244 @@ Vector3 GetSlotPosition(int index)
         return null;
     }
 
-    // ---------------- MOVE TO BOTTOM AFTER DELAY ----------------
-    IEnumerator MoveToBottomAreaAfterDelay()
+    // ---------------- COMMON FLOW (USED BY START + RESET) ----------------
+IEnumerator ScatterAndMoveToBottom()
+{
+    yield return new WaitForSeconds(moveDelay);
+
+    for (int i = 0; i < spawnedPieces.Length; i++)
     {
-        // 🔥 WAIT so original layout is visible
-        yield return new WaitForSeconds(1f);
+        MoveToBottom(spawnedPieces[i]);
+        yield return new WaitForSeconds(0.05f);
+    }
+}
 
-        // 🔥 THEN scatter
-        for (int i = 0; i < spawnedPieces.Length; i++)
-        {
-            Vector3 randomPos = pieceParent.position + new Vector3(
-                Random.Range(-3f, 3f),
-                Random.Range(-2f, 2f),
-                0f
-            );
+public void MoveToBottom(GameObject piece)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
 
-            RectTransform rect = spawnedPieces[i].GetComponent<RectTransform>();
+    rect.SetParent(bottomParent, true); // 🔥 KEY FIX
 
-            rect.anchoredPosition = new Vector2(
-                Random.Range(-300f, 300f),
-                Random.Range(-200f, 200f)
-            );
-        }
+    bottomPieces.Add(piece);
 
-        yield return new WaitForSeconds(moveDelay);
+    int index = bottomPieces.Count - 1;
 
-        // 🔥 Move to bottom
-        for (int i = 0; i < spawnedPieces.Length; i++)
-        {
-            AddToBottom(spawnedPieces[i]);
-            yield return new WaitForSeconds(0.05f);
-        }
+    StartCoroutine(MoveAndSet(piece, index));
+}
+
+IEnumerator MoveAndSet(GameObject piece, int index)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
+
+    Vector2 start = rect.anchoredPosition;
+    Vector2 target = new Vector2(index * spacing, 0);
+
+    yield return null;
+
+    float t = 0;
+
+    while (t < 1f)
+    {
+        t += Time.deltaTime * moveSpeed;
+        rect.anchoredPosition = Vector2.Lerp(start, target, t);
+        yield return null;
     }
 
-    // ---------------- ADD TO BOTTOM ----------------
-    public void AddToBottom(GameObject piece)
+    rect.anchoredPosition = target;
+
+    // 🔥 IMPORTANT RULE (AFTER ARRIVAL ONLY)
+    piece.SetActive(index < maxVisible);
+}
+
+void UpdateSlots()
+{
+    for (int i = 0; i < activeBottom.Count; i++)
     {
-        if (piece == null) return;
-
-        bottomPieces.Add(piece);
-
-       piece.transform.SetParent(bottomParent, false);
-
-        StartCoroutine(MoveToSlot(piece));
+        bool visible = i < maxVisible;
+        activeBottom[i].SetActive(visible);
     }
+}
 
-    IEnumerator MoveToSlot(GameObject piece)
+   IEnumerator RearrangeAll()
     {
-        int index = bottomPieces.IndexOf(piece);
+        yield return null;
 
-        RectTransform rect = piece.GetComponent<RectTransform>();
-
-        Vector2 start = rect.anchoredPosition;
-        Vector2 target = GetSlotPositionUI(index);
-
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime * moveSpeed;
-            rect.anchoredPosition = Vector2.Lerp(start, target, t);
-            yield return null;
-        }
-        piece.transform.position = target;
-    }
-
-    // ---------------- SLOT POSITION ----------------
- 
-
-    // ---------------- REMOVE (CALL FROM DRAG SCRIPT) ----------------
-    public void RemoveFromBottom(GameObject piece)
-    {
-        if (!bottomPieces.Contains(piece)) return;
-
-        bottomPieces.Remove(piece);
-
-        ReArrangeBottom();
-    }
-
-    // ---------------- REARRANGE AFTER REMOVE ----------------
-    void ReArrangeBottom()
-    {
         for (int i = 0; i < bottomPieces.Count; i++)
         {
-            StartCoroutine(MoveToNewSlot(bottomPieces[i], i));
+            GameObject piece = bottomPieces[i];
+
+            Vector2 targetPos = GetSlotPositionUI(i);
+
+            // Stop old movement if exists
+            if (moveRoutines.ContainsKey(piece) && moveRoutines[piece] != null)
+            {
+                StopCoroutine(moveRoutines[piece]);
+            }
+
+            // Start new movement
+            Coroutine move = StartCoroutine(MoveToSlot(piece, targetPos));
+            moveRoutines[piece] = move;
         }
     }
 
-    IEnumerator MoveToNewSlot(GameObject piece, int index)
+
+    void TryAddNextPiece()
     {
-        Vector3 start = piece.transform.position;
-        Vector3 target = GetSlotPosition(index);
+        if (nextSpawnIndex >= spawnedPieces.Length) return;
 
-        float t = 0f;
+        if (bottomPieces.Count >= maxVisible) return;
 
-        while (t < 1f)
+        GameObject nextPiece = spawnedPieces[nextSpawnIndex];
+        nextSpawnIndex++;
+
+        AddToBottom(nextPiece);
+    }
+
+    void RefillSlots()
+{
+    for (int i = 0; i < activeBottom.Count; i++)
+    {
+        GameObject piece = activeBottom[i];
+
+        StartCoroutine(Move(piece, GetSlotPositionUI(i)));
+
+        piece.SetActive(i < maxVisible);
+    }
+}
+
+IEnumerator Move(GameObject piece, Vector2 target)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
+
+    Vector2 start = rect.anchoredPosition;
+
+    yield return null;
+
+    float t = 0;
+
+    while (t < 1f)
+    {
+        t += Time.deltaTime * moveSpeed;
+        rect.anchoredPosition = Vector2.Lerp(start, target, t);
+        yield return null;
+    }
+
+    rect.anchoredPosition = target;
+}
+
+   void RearrangeVisible()
+{
+    for (int i = 0; i < bottomPieces.Count; i++)
+    {
+        GameObject piece = bottomPieces[i];
+
+        Vector2 targetPos = GetSlotPositionUI(i);
+
+        if (moveRoutines.ContainsKey(piece))
         {
-            t += Time.deltaTime * moveSpeed;
-            piece.transform.position = Vector3.Lerp(start, target, t);
-            yield return null;
+            StopCoroutine(moveRoutines[piece]);
         }
 
-        piece.transform.position = target;
+        moveRoutines[piece] = StartCoroutine(MoveToSlot(piece, targetPos));
+    }
+
+    
+}
+
+    // ---------------- ADD TO BOTTOM ----------------
+public void AddToBottom(GameObject piece)
+{
+    if (piece == null) return;
+    if (bottomPieces.Contains(piece)) return;
+
+    piece.SetActive(true);
+    piece.transform.SetParent(bottomParent, false);
+
+    bottomPieces.Add(piece);
+
+    int index = bottomPieces.Count - 1;
+    Vector2 targetPos = GetSlotPositionUI(index);
+
+    if (moveRoutines.ContainsKey(piece))
+    {
+        StopCoroutine(moveRoutines[piece]);
+    }
+
+    moveRoutines[piece] = StartCoroutine(MoveToSlot(piece, targetPos));
+}
+
+
+    // ---------------- SLOT POSITION ----------------
+    Vector2 GetSlotPositionUI(int index)
+{
+    float x = index * spacing; // ✅ fixed, no shifting
+    return new Vector2(x, 0f);
+}
+
+    // ---------------- MOVE ----------------
+IEnumerator MoveToSlot(GameObject piece, Vector2 target)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
+
+    Vector2 start = rect.anchoredPosition;
+
+    yield return null;
+    start = rect.anchoredPosition;
+
+    float t = 0f;
+
+    while (t < 1f)
+    {
+        t += Time.deltaTime * moveSpeed;
+        rect.anchoredPosition = Vector2.Lerp(start, target, t);
+        yield return null;
+    }
+
+    rect.anchoredPosition = target;
+
+    int index = bottomPieces.IndexOf(piece);
+
+    // 🔥 ONLY AFTER reaching position decide visibility
+    if (index >= maxVisible)
+    {
+        piece.SetActive(false);
+    }
+}
+
+public void RemoveFromBottom(GameObject piece)
+{
+    if (!bottomPieces.Contains(piece)) return;
+
+    bottomPieces.Remove(piece);
+    piece.SetActive(false);
+
+    Rearrange();
+    TryAddNextPiece();
+}
+void Rearrange()
+{
+    for (int i = 0; i < bottomPieces.Count; i++)
+    {
+        StartCoroutine(MoveAndSet(bottomPieces[i], i));
+    }
+}
+
+    // ---------------- RESET (🔥 MAIN FEATURE) ----------------
+    public void ResetAllPieces()
+    {
+        StopAllCoroutines();
+
+        bottomPieces.Clear();
+        moveRoutines.Clear();
+
+        foreach (var piece in spawnedPieces)
+        {
+            var drag = piece.GetComponent<DragPiece>();
+            if (drag != null)
+                drag.ResetPiece();
+        }
+
+        StartCoroutine(ScatterAndMoveToBottom());
     }
 }
 

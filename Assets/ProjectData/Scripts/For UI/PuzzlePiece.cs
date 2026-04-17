@@ -9,24 +9,40 @@ public class PuzzlePiece : MonoBehaviour
 
     private int stencilID;
 
+    private Material maskMat;
+    private Material contentMat;
+    private Material shadowMat;
+
     public void Setup(int index)
     {
         stencilID = index + 1;
 
-        // 🔥 Clone materials (VERY IMPORTANT in UI also)
-        maskImage.material = new Material(maskImage.material);
-        contentImage.material = new Material(contentImage.material);
+        ApplyMaterial(maskImage, ref maskMat);
+        ApplyMaterial(contentImage, ref contentMat);
 
         if (shadowImage != null)
-            shadowImage.material = new Material(shadowImage.material);
+            ApplyMaterial(shadowImage, ref shadowMat);
 
-        // ✅ Stencil
-        maskImage.material.SetFloat("_StencilID", stencilID);
-        contentImage.material.SetFloat("_StencilID", stencilID);
+        ApplyStencil(maskMat);
+        ApplyStencil(contentMat);
 
-        if (shadowImage != null)
-            shadowImage.material.SetFloat("_StencilID", stencilID);
+        if (shadowMat != null)
+            ApplyStencil(shadowMat);
     }
 
+    void ApplyMaterial(Image img, ref Material matRef)
+    {
+        if (img == null) return;
 
+        // IMPORTANT: fully isolate material instance
+        matRef = Instantiate(img.material);
+        img.material = matRef;
+    }
+
+    void ApplyStencil(Material mat)
+    {
+        if (mat == null) return;
+
+        mat.SetFloat("_StencilID", stencilID);
+    }
 }
