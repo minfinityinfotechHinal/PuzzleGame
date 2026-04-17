@@ -236,7 +236,7 @@ MonoBehaviour:
   bottomParent: {fileID: 1081901429}
   spacing: 250
   moveSpeed: 8
-  moveDelay: 1.5
+  moveDelay: 0.6
 --- !u!1 &41782809
 GameObject:
   m_ObjectHideFlags: 0

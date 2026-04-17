@@ -29,10 +29,12 @@ public class PuzzleManager : MonoBehaviour
     private List<GameObject> allPieces = new List<GameObject>();
     private List<GameObject> activeBottom = new List<GameObject>();
     private List<GameObject> bottomPieces = new List<GameObject>();
+    private GameObject[] slotPieces;
     private Dictionary<GameObject, Coroutine> moveRoutines = new Dictionary<GameObject, Coroutine>();
     
     void Start()
     {
+        slotPieces = new GameObject[maxVisible];
         SpawnPieces();
         StartCoroutine(StartFlow());
     }
@@ -83,144 +85,62 @@ IEnumerator ScatterAndMoveToBottom()
 {
     yield return new WaitForSeconds(moveDelay);
 
-    for (int i = 0; i < spawnedPieces.Length; i++)
+    List<GameObject> remaining = new List<GameObject>(spawnedPieces);
+
+    while (remaining.Count > 0)
     {
-        MoveToBottom(spawnedPieces[i]);
-        yield return new WaitForSeconds(0.05f);
+        int groupSize = Random.Range(3, 5); // 3–4 pieces
+
+        for (int i = 0; i < groupSize && remaining.Count > 0; i++)
+        {
+            int randIndex = Random.Range(0, remaining.Count);
+
+            GameObject piece = remaining[randIndex];
+            remaining.RemoveAt(randIndex);
+
+            MoveToBottom(piece);
+        }
+
+        yield return new WaitForSeconds(0.1f); // small delay between groups
     }
 }
 
 public void MoveToBottom(GameObject piece)
 {
     RectTransform rect = piece.GetComponent<RectTransform>();
+    rect.SetParent(bottomParent, true);
 
-    rect.SetParent(bottomParent, true); // 🔥 KEY FIX
+    int slot = GetRandomEmptySlot();
+    if (slot == -1)
+    {
+        piece.SetActive(false);
+        return;
+    }
 
+    slotPieces[slot] = piece;
     bottomPieces.Add(piece);
 
-    int index = bottomPieces.Count - 1;
-
-    StartCoroutine(MoveAndSet(piece, index));
+    StartCoroutine(MoveToSlot(piece, slot)); // ✔ ONLY INT
 }
 
-IEnumerator MoveAndSet(GameObject piece, int index)
+int GetRandomEmptySlot()
 {
-    RectTransform rect = piece.GetComponent<RectTransform>();
+    List<int> empty = new List<int>();
 
-    Vector2 start = rect.anchoredPosition;
-    Vector2 target = new Vector2(index * spacing, 0);
-
-    yield return null;
-
-    float t = 0;
-
-    while (t < 1f)
+    for (int i = 0; i < maxVisible; i++)
     {
-        t += Time.deltaTime * moveSpeed;
-        rect.anchoredPosition = Vector2.Lerp(start, target, t);
-        yield return null;
+        if (slotPieces[i] == null)
+            empty.Add(i);
     }
 
-    rect.anchoredPosition = target;
+    if (empty.Count == 0)
+        return -1;
 
-    // 🔥 IMPORTANT RULE (AFTER ARRIVAL ONLY)
-    piece.SetActive(index < maxVisible);
+    return empty[Random.Range(0, empty.Count)];
 }
 
-void UpdateSlots()
-{
-    for (int i = 0; i < activeBottom.Count; i++)
-    {
-        bool visible = i < maxVisible;
-        activeBottom[i].SetActive(visible);
-    }
-}
-
-   IEnumerator RearrangeAll()
-    {
-        yield return null;
-
-        for (int i = 0; i < bottomPieces.Count; i++)
-        {
-            GameObject piece = bottomPieces[i];
-
-            Vector2 targetPos = GetSlotPositionUI(i);
-
-            // Stop old movement if exists
-            if (moveRoutines.ContainsKey(piece) && moveRoutines[piece] != null)
-            {
-                StopCoroutine(moveRoutines[piece]);
-            }
-
-            // Start new movement
-            Coroutine move = StartCoroutine(MoveToSlot(piece, targetPos));
-            moveRoutines[piece] = move;
-        }
-    }
 
 
-    void TryAddNextPiece()
-    {
-        if (nextSpawnIndex >= spawnedPieces.Length) return;
-
-        if (bottomPieces.Count >= maxVisible) return;
-
-        GameObject nextPiece = spawnedPieces[nextSpawnIndex];
-        nextSpawnIndex++;
-
-        AddToBottom(nextPiece);
-    }
-
-    void RefillSlots()
-{
-    for (int i = 0; i < activeBottom.Count; i++)
-    {
-        GameObject piece = activeBottom[i];
-
-        StartCoroutine(Move(piece, GetSlotPositionUI(i)));
-
-        piece.SetActive(i < maxVisible);
-    }
-}
-
-IEnumerator Move(GameObject piece, Vector2 target)
-{
-    RectTransform rect = piece.GetComponent<RectTransform>();
-
-    Vector2 start = rect.anchoredPosition;
-
-    yield return null;
-
-    float t = 0;
-
-    while (t < 1f)
-    {
-        t += Time.deltaTime * moveSpeed;
-        rect.anchoredPosition = Vector2.Lerp(start, target, t);
-        yield return null;
-    }
-
-    rect.anchoredPosition = target;
-}
-
-   void RearrangeVisible()
-{
-    for (int i = 0; i < bottomPieces.Count; i++)
-    {
-        GameObject piece = bottomPieces[i];
-
-        Vector2 targetPos = GetSlotPositionUI(i);
-
-        if (moveRoutines.ContainsKey(piece))
-        {
-            StopCoroutine(moveRoutines[piece]);
-        }
-
-        moveRoutines[piece] = StartCoroutine(MoveToSlot(piece, targetPos));
-    }
-
-    
-}
 
     // ---------------- ADD TO BOTTOM ----------------
 public void AddToBottom(GameObject piece)
@@ -241,7 +161,7 @@ public void AddToBottom(GameObject piece)
         StopCoroutine(moveRoutines[piece]);
     }
 
-    moveRoutines[piece] = StartCoroutine(MoveToSlot(piece, targetPos));
+    Coroutine move = StartCoroutine(MoveToSlot(piece, index));
 }
 
 
@@ -253,14 +173,12 @@ public void AddToBottom(GameObject piece)
 }
 
     // ---------------- MOVE ----------------
-IEnumerator MoveToSlot(GameObject piece, Vector2 target)
+IEnumerator MoveToSlot(GameObject piece, int slotIndex)
 {
     RectTransform rect = piece.GetComponent<RectTransform>();
 
     Vector2 start = rect.anchoredPosition;
-
-    yield return null;
-    start = rect.anchoredPosition;
+    Vector2 target = GetSlotPositionUI(slotIndex);
 
     float t = 0f;
 
@@ -272,32 +190,39 @@ IEnumerator MoveToSlot(GameObject piece, Vector2 target)
     }
 
     rect.anchoredPosition = target;
-
-    int index = bottomPieces.IndexOf(piece);
-
-    // 🔥 ONLY AFTER reaching position decide visibility
-    if (index >= maxVisible)
-    {
-        piece.SetActive(false);
-    }
 }
-
 public void RemoveFromBottom(GameObject piece)
 {
-    if (!bottomPieces.Contains(piece)) return;
+    int index = System.Array.IndexOf(slotPieces, piece);
+
+    if (index >= 0)
+        slotPieces[index] = null;
 
     bottomPieces.Remove(piece);
+
     piece.SetActive(false);
 
-    Rearrange();
-    TryAddNextPiece();
+    TryFillRandomSlot();
 }
-void Rearrange()
+void TryFillRandomSlot()
 {
-    for (int i = 0; i < bottomPieces.Count; i++)
-    {
-        StartCoroutine(MoveAndSet(bottomPieces[i], i));
-    }
+    if (nextSpawnIndex >= spawnedPieces.Length)
+        return;
+
+    int slot = GetRandomEmptySlot();
+    if (slot == -1)
+        return;
+
+    GameObject piece = spawnedPieces[nextSpawnIndex];
+    nextSpawnIndex++;
+
+    RectTransform rect = piece.GetComponent<RectTransform>();
+    rect.SetParent(bottomParent, true);
+
+    slotPieces[slot] = piece;
+    bottomPieces.Add(piece);
+
+    StartCoroutine(MoveToSlot(piece, slot));
 }
 
     // ---------------- RESET (🔥 MAIN FEATURE) ----------------
