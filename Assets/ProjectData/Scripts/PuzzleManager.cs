@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class PuzzleManager : MonoBehaviour
 {
+    public static PuzzleManager Instance;
+     
     [Header("Grid")]
     public int rows = 5;
     public int cols = 10;
@@ -37,7 +39,23 @@ public class PuzzleManager : MonoBehaviour
     private Queue<GameObject> overflowQueue = new Queue<GameObject>();
     public RectTransform overflowTarget;
 
-    
+  
+
+    public RectTransform dragArea;
+    [SerializeField]
+    private List<Vector2> initialPositions = new List<Vector2>();
+
+    private void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+    }
     void Start()
     {
         slotPieces = new GameObject[maxVisible];
@@ -54,25 +72,41 @@ public class PuzzleManager : MonoBehaviour
 
     // ---------------- SPAWN ----------------
     void SpawnPieces()
+{
+    var prefabs = GetSelectedPrefabs();
+
+    spawnedPieces = new GameObject[prefabs.Length];
+    initialPositions.Clear(); // ✅ reset list
+
+    for (int i = 0; i < prefabs.Length; i++)
     {
-        var prefabs = GetSelectedPrefabs();
+        GameObject obj = Instantiate(prefabs[i], pieceParent, false);
+        obj.SetActive(true);
 
-        spawnedPieces = new GameObject[prefabs.Length];
+        // ✅ STORE POSITION IMMEDIATELY AFTER CLONE
+        RectTransform rect = obj.GetComponent<RectTransform>();
+        initialPositions.Add(rect.anchoredPosition);
 
-        for (int i = 0; i < prefabs.Length; i++)
+        PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
+        if (piece != null)
         {
-            GameObject obj = Instantiate(prefabs[i], pieceParent, false);
-            obj.SetActive(true);
-
-            PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
-            if (piece != null)
-            {
-                piece.Setup(i); // 🔥 THIS IS REQUIRED
-            }
-
-            spawnedPieces[i] = obj;
+            piece.Setup(i);
         }
+
+        DragPiece drag = obj.GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.canDrag = false;
+
+          
+            drag.correctPosition = initialPositions[i];
+            
+            drag.dragArea = dragArea;
+        }
+
+        spawnedPieces[i] = obj;
     }
+}
 
     GameObject[] GetSelectedPrefabs()
     {
@@ -238,6 +272,12 @@ IEnumerator MoveToSlot(GameObject piece, int slotIndex, bool occupySlot)
     rect.anchoredPosition = target;
 
     // ✔ after reaching destination
+    DragPiece drag = piece.GetComponent<DragPiece>();
+    if (drag != null)
+    {
+        drag.canDrag = true; // ✅ ENABLE DRAG HERE
+    }
+
     if (!occupySlot)
     {
         piece.SetActive(false);
@@ -248,13 +288,68 @@ public void RemoveFromBottom(GameObject piece)
     int index = System.Array.IndexOf(slotPieces, piece);
 
     if (index >= 0)
+    {
         slotPieces[index] = null;
+    }
 
     bottomPieces.Remove(piece);
 
-    piece.SetActive(false);
+    // ❌ DO NOT disable → user is dragging it
+    // piece.SetActive(false);
 
-    TryFillRandomSlot();
+    // 🔥 REARRANGE remaining pieces
+    RearrangeBottom();
+
+    // 🔥 FILL EMPTY SLOTS FROM OVERFLOW
+    FillFromOverflow();
+}
+
+void RearrangeBottom()
+{
+    List<GameObject> newList = new List<GameObject>();
+
+    // collect valid pieces
+    foreach (var p in slotPieces)
+    {
+        if (p != null)
+            newList.Add(p);
+    }
+
+    // reset slots
+    for (int i = 0; i < maxVisible; i++)
+    {
+        slotPieces[i] = null;
+    }
+
+    // reassign compact positions
+    for (int i = 0; i < newList.Count; i++)
+    {
+        GameObject piece = newList[i];
+        slotPieces[i] = piece;
+
+        StartCoroutine(MoveToSlot(piece, i, true));
+    }
+}
+
+void FillFromOverflow()
+{
+    for (int i = 0; i < maxVisible; i++)
+    {
+        if (slotPieces[i] == null && overflowQueue.Count > 0)
+        {
+            GameObject piece = overflowQueue.Dequeue();
+
+            piece.SetActive(true);
+
+            RectTransform rect = piece.GetComponent<RectTransform>();
+            rect.SetParent(bottomParent, true);
+
+            slotPieces[i] = piece;
+            bottomPieces.Add(piece);
+
+            StartCoroutine(MoveToSlot(piece, i, true));
+        }
+    }
 }
 void TryFillRandomSlot()
 {

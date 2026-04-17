@@ -239,6 +239,8 @@ MonoBehaviour:
   moveDelay: 0.6
   slotPieces: []
   overflowTarget: {fileID: 1114038084}
+  dragArea: {fileID: 41782810}
+  initialPositions: []
 --- !u!1 &41782809
 GameObject:
   m_ObjectHideFlags: 0
@@ -881,6 +883,8 @@ MonoBehaviour:
   moveDelay: 1.5
   slotPieces: []
   overflowTarget: {fileID: 0}
+  dragArea: {fileID: 0}
+  initialPositions: []
 --- !u!1 &983771659
 GameObject:
   m_ObjectHideFlags: 0
