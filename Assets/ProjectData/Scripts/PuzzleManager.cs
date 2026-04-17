@@ -29,8 +29,14 @@ public class PuzzleManager : MonoBehaviour
     private List<GameObject> allPieces = new List<GameObject>();
     private List<GameObject> activeBottom = new List<GameObject>();
     private List<GameObject> bottomPieces = new List<GameObject>();
+    [SerializeField]
     private GameObject[] slotPieces;
+    private int overflowIndex = 0;
     private Dictionary<GameObject, Coroutine> moveRoutines = new Dictionary<GameObject, Coroutine>();
+    
+    private Queue<GameObject> overflowQueue = new Queue<GameObject>();
+    public RectTransform overflowTarget;
+
     
     void Start()
     {
@@ -111,18 +117,48 @@ public void MoveToBottom(GameObject piece)
     rect.SetParent(bottomParent, true);
 
     int slot = GetRandomEmptySlot();
-    if (slot == -1)
+
+    if (slot != -1)
     {
-        piece.SetActive(false);
-        return;
+        slotPieces[slot] = piece;
+        bottomPieces.Add(piece);
+
+        StartCoroutine(MoveToSlot(piece, slot, true));
+    }
+    else
+    {
+        // 🔥 NO SLOT AVAILABLE → go to overflow queue
+        overflowQueue.Enqueue(piece);
+        StartCoroutine(MoveToOverflowPosition(piece));
+    }
+}
+IEnumerator MoveToOverflowPosition(GameObject piece)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
+
+    Vector2 start = rect.anchoredPosition;
+
+    // 👉 each overflow piece gets unique position
+    float x = (maxVisible + overflowIndex) * spacing;
+
+    Vector2 target = new Vector2(x, 0f);
+
+    overflowIndex++;
+
+    float t = 0f;
+
+    while (t < 1f)
+    {
+        t += Time.deltaTime * moveSpeed;
+        rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
+        yield return null;
     }
 
-    slotPieces[slot] = piece;
-    bottomPieces.Add(piece);
+    rect.anchoredPosition = target;
 
-    StartCoroutine(MoveToSlot(piece, slot)); // ✔ ONLY INT
+    piece.SetActive(false);
+   // rect.anchoredPosition = new Vector3
 }
-
 int GetRandomEmptySlot()
 {
     List<int> empty = new List<int>();
@@ -161,7 +197,7 @@ public void AddToBottom(GameObject piece)
         StopCoroutine(moveRoutines[piece]);
     }
 
-    Coroutine move = StartCoroutine(MoveToSlot(piece, index));
+    Coroutine move = StartCoroutine(MoveToSlot(piece, index, true));
 }
 
 
@@ -173,12 +209,22 @@ public void AddToBottom(GameObject piece)
 }
 
     // ---------------- MOVE ----------------
-IEnumerator MoveToSlot(GameObject piece, int slotIndex)
+IEnumerator MoveToSlot(GameObject piece, int slotIndex, bool occupySlot)
 {
     RectTransform rect = piece.GetComponent<RectTransform>();
 
     Vector2 start = rect.anchoredPosition;
-    Vector2 target = GetSlotPositionUI(slotIndex);
+    Vector2 target;
+
+    if (slotIndex == -1)
+    {
+        // move somewhere off-screen or default bottom position
+        target = new Vector2(0, -300); 
+    }
+    else
+    {
+        target = GetSlotPositionUI(slotIndex);
+    }
 
     float t = 0f;
 
@@ -190,6 +236,12 @@ IEnumerator MoveToSlot(GameObject piece, int slotIndex)
     }
 
     rect.anchoredPosition = target;
+
+    // ✔ after reaching destination
+    if (!occupySlot)
+    {
+        piece.SetActive(false);
+    }
 }
 public void RemoveFromBottom(GameObject piece)
 {
@@ -222,7 +274,7 @@ void TryFillRandomSlot()
     slotPieces[slot] = piece;
     bottomPieces.Add(piece);
 
-    StartCoroutine(MoveToSlot(piece, slot));
+    StartCoroutine(MoveToSlot(piece, slot, true));
 }
 
     // ---------------- RESET (🔥 MAIN FEATURE) ----------------
