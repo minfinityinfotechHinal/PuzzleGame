@@ -28,7 +28,7 @@ public class PuzzleManager : MonoBehaviour
 
     private int maxVisible = 6;
     private int nextSpawnIndex = 0;
-    private List<GameObject> allPieces = new List<GameObject>();
+   public List<PuzzlePiece> allPieces = new List<PuzzlePiece>();
     private List<GameObject> activeBottom = new List<GameObject>();
     private List<GameObject> bottomPieces = new List<GameObject>();
     [SerializeField]
@@ -39,7 +39,8 @@ public class PuzzleManager : MonoBehaviour
     private Queue<GameObject> overflowQueue = new Queue<GameObject>();
     public RectTransform overflowTarget;
 
-  
+   public float cellSize = 100f; // exact spacing between pieces
+    public Vector2 gridOrigin;    
 
     public RectTransform dragArea;
     [SerializeField]
@@ -70,6 +71,14 @@ public class PuzzleManager : MonoBehaviour
         yield return StartCoroutine(ScatterAndMoveToBottom());
     }
 
+    Vector2 GetGridPosition(PuzzlePiece p)
+    {
+        float x = PuzzleManager.Instance.gridOrigin.x + p.col * PuzzleManager.Instance.cellSize;
+        float y = PuzzleManager.Instance.gridOrigin.y - p.row * PuzzleManager.Instance.cellSize;
+
+        return new Vector2(x, y);
+    }
+
     // ---------------- SPAWN ----------------
     void SpawnPieces()
 {
@@ -87,10 +96,12 @@ public class PuzzleManager : MonoBehaviour
         RectTransform rect = obj.GetComponent<RectTransform>();
         initialPositions.Add(rect.anchoredPosition);
 
+       
         PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
         if (piece != null)
         {
             piece.Setup(i);
+            allPieces.Add(piece); // 🔥 ADD THIS
         }
 
         DragPiece drag = obj.GetComponent<DragPiece>();
@@ -106,6 +117,7 @@ public class PuzzleManager : MonoBehaviour
 
         spawnedPieces[i] = obj;
     }
+    AssignNeighbors();
 }
 
     GameObject[] GetSelectedPrefabs()
@@ -142,6 +154,36 @@ IEnumerator ScatterAndMoveToBottom()
         }
 
         yield return new WaitForSeconds(0.1f); // small delay between groups
+    }
+}
+
+void AssignNeighbors()
+{
+    for (int i = 0; i < spawnedPieces.Length; i++)
+    {
+        PuzzlePiece piece = spawnedPieces[i].GetComponent<PuzzlePiece>();
+
+        int row = i / cols;
+        int col = i % cols;
+
+        piece.row = row;
+        piece.col = col;
+
+        // LEFT
+        if (col > 0)
+            piece.left = spawnedPieces[i - 1].GetComponent<PuzzlePiece>();
+
+        // RIGHT
+        if (col < cols - 1)
+            piece.right = spawnedPieces[i + 1].GetComponent<PuzzlePiece>();
+
+        // TOP
+        if (row > 0)
+            piece.top = spawnedPieces[i - cols].GetComponent<PuzzlePiece>();
+
+        // BOTTOM
+        if (row < rows - 1)
+            piece.bottom = spawnedPieces[i + cols].GetComponent<PuzzlePiece>();
     }
 }
 

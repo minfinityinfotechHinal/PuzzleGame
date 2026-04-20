@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections.Generic;
 
 public class PuzzlePiece : MonoBehaviour
 {
@@ -12,6 +13,18 @@ public class PuzzlePiece : MonoBehaviour
     private Material maskMat;
     private Material contentMat;
     private Material shadowMat;
+
+    // 🔥 NEW
+    public PuzzleGroup group;
+
+    public int row;
+    public int col;
+
+    public PuzzlePiece left;
+    public PuzzlePiece right;
+    public PuzzlePiece top;
+    public PuzzlePiece bottom;
+
 
     public void Setup(int index)
     {
@@ -28,13 +41,16 @@ public class PuzzlePiece : MonoBehaviour
 
         if (shadowMat != null)
             ApplyStencil(shadowMat);
+
+        // 🔥 CREATE GROUP
+        group = new PuzzleGroup();
+        group.AddPiece(this);
     }
 
     void ApplyMaterial(Image img, ref Material matRef)
     {
         if (img == null) return;
 
-        // IMPORTANT: fully isolate material instance
         matRef = Instantiate(img.material);
         img.material = matRef;
     }
@@ -42,7 +58,6 @@ public class PuzzlePiece : MonoBehaviour
     void ApplyStencil(Material mat)
     {
         if (mat == null) return;
-
         mat.SetFloat("_StencilID", stencilID);
     }
 }

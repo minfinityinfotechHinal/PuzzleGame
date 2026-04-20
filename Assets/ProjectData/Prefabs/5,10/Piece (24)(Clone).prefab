@@ -242,7 +242,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DragPiece
   isPlaced: 0
-  correctTarget: {fileID: 0}
   snapThreshold: 120
   canDrag: 0
   dragArea: {fileID: 0}
