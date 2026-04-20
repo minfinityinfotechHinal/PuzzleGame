@@ -17,13 +17,15 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public bool canDrag = false; 
     public RectTransform dragArea;
     public Vector2 correctPosition;
-
+    public GameObject ghostImage;
 
     private void Awake()
     {
         rectTransform = GetComponent<RectTransform>();
         canvas = GetComponentInParent<Canvas>();
         canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        if (ghostImage != null)
+        ghostImage.SetActive(false);
     }
 
    public void OnBeginDrag(PointerEventData eventData)
@@ -46,7 +48,18 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     if (isPlaced || !canDrag) return;
 
     rectTransform.anchoredPosition += eventData.delta / canvas.scaleFactor;
+    float distance = Vector2.Distance(
+    rectTransform.anchoredPosition,
+    correctPosition
+    );
 
+    if (ghostImage != null)
+    {
+        if (distance <= snapThreshold * 1.5f)
+            ghostImage.SetActive(true);
+        else
+            ghostImage.SetActive(false);
+    }
     if (dragArea != null)
     {
         Vector3[] corners = new Vector3[4];
@@ -66,7 +79,7 @@ public void OnEndDrag(PointerEventData eventData)
     if (isPlaced || !canDrag) return;
 
     canvasGroup.blocksRaycasts = true;
-
+    ghostImage?.SetActive(false);
     float distance = Vector2.Distance(
         rectTransform.anchoredPosition,
         correctPosition
@@ -84,24 +97,27 @@ public void OnEndDrag(PointerEventData eventData)
         Debug.Log("❌ WRONG DROP");
     }
 }
-   IEnumerator SmoothSnap()
-{
-    Vector2 start = rectTransform.anchoredPosition;
-    Vector2 target = correctPosition;
-
-    float t = 0f;
-
-    while (t < 1f)
+    IEnumerator SmoothSnap()
     {
-        t += Time.deltaTime * 10f;
-        rectTransform.anchoredPosition = Vector2.Lerp(start, target, t);
-        yield return null;
+        Vector2 start = rectTransform.anchoredPosition;
+        Vector2 target = correctPosition;
+
+        float t = 0f;
+
+        while (t < 1f)
+        {
+            t += Time.deltaTime * 10f;
+            rectTransform.anchoredPosition = Vector2.Lerp(start, target, t);
+            yield return null;
+        }
+
+        rectTransform.anchoredPosition = target;
+
+        isPlaced = true;
+
+        // 🔥 INFORM MANAGER
+        PuzzleManager.Instance.OnPiecePlaced(this);
     }
-
-    rectTransform.anchoredPosition = target;
-
-    isPlaced = true;
-}
 
 
     public void ResetPiece()

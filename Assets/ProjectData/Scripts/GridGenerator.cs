@@ -9,23 +9,23 @@ public class GridGenerator : MonoBehaviour
 
     public Transform[] slots;
 
-    // public void GenerateGrid()
-    // {
-    //     slots = new Transform[rows * cols];
+    public void GenerateGrid()
+    {
+        slots = new Transform[rows * cols];
 
-    //     int index = 0;
+        int index = 0;
 
-    //     for (int y = 0; y < rows; y++)
-    //     {
-    //         for (int x = 0; x < cols; x++)
-    //         {
-    //             Vector3 pos = new Vector3(x * spacing, -y * spacing, 0);
+        for (int y = 0; y < rows; y++)
+        {
+            for (int x = 0; x < cols; x++)
+            {
+                Vector3 pos = new Vector3(x * spacing, -y * spacing, 0);
 
-    //             GameObject slot = Instantiate(slotPrefab, pos, Quaternion.identity, transform);
+                GameObject slot = Instantiate(slotPrefab, pos, Quaternion.identity, transform);
 
-    //             slots[index] = slot.transform;
-    //             index++;
-    //         }
-    //     }
-    // }
+                slots[index] = slot.transform;
+                index++;
+            }
+        }
+    }
 }

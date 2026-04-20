@@ -39,11 +39,14 @@ public class PuzzleManager : MonoBehaviour
     private Queue<GameObject> overflowQueue = new Queue<GameObject>();
     public RectTransform overflowTarget;
 
-  
+    private int placedCount = 0;
+    private int totalPieces = 0;
 
     public RectTransform dragArea;
     [SerializeField]
     private List<Vector2> initialPositions = new List<Vector2>();
+    [Header("UI")]
+    public GameObject completePanel;
 
     private void Awake()
     {
@@ -74,7 +77,7 @@ public class PuzzleManager : MonoBehaviour
     void SpawnPieces()
 {
     var prefabs = GetSelectedPrefabs();
-
+    totalPieces = prefabs.Length;
     spawnedPieces = new GameObject[prefabs.Length];
     initialPositions.Clear(); // ✅ reset list
 
@@ -102,10 +105,47 @@ public class PuzzleManager : MonoBehaviour
             drag.correctPosition = initialPositions[i];
             
             drag.dragArea = dragArea;
+            // 🔥 POSITION GHOST
+            if (drag.ghostImage != null)
+            {
+                RectTransform ghostRect = drag.ghostImage.GetComponent<RectTransform>();
+                ghostRect.anchoredPosition = initialPositions[i];
+            }
         }
 
         spawnedPieces[i] = obj;
     }
+}
+
+    public void OnPiecePlaced(DragPiece piece)
+    {
+        placedCount++;
+
+        Debug.Log($"Placed: {placedCount}/{totalPieces}");
+
+        if (placedCount >= totalPieces)
+        {
+            OnPuzzleComplete();
+        }
+    }
+
+    void OnPuzzleComplete()
+{
+    Debug.Log("🎉 PUZZLE COMPLETE!");
+
+    if (completePanel != null)
+        completePanel.SetActive(true);
+
+    // Disable drag
+    foreach (var p in spawnedPieces)
+    {
+        var drag = p.GetComponent<DragPiece>();
+        if (drag != null)
+            drag.canDrag = false;
+    }
+
+    // Optional: stop all movement
+    StopAllCoroutines();
 }
 
     GameObject[] GetSelectedPrefabs()
