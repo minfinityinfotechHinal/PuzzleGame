@@ -7,11 +7,11 @@ public class GridGenerator : MonoBehaviour
     public int cols = 4;
     public float spacing = 1.2f;
 
-    public Transform[] slots;
+    public RectTransform[] slots;
 
     public void GenerateGrid()
     {
-        slots = new Transform[rows * cols];
+        slots = new RectTransform[rows * cols];
 
         int index = 0;
 
@@ -19,11 +19,30 @@ public class GridGenerator : MonoBehaviour
         {
             for (int x = 0; x < cols; x++)
             {
-                Vector3 pos = new Vector3(x * spacing, -y * spacing, 0);
+                GameObject slot = Instantiate(slotPrefab, transform);
 
-                GameObject slot = Instantiate(slotPrefab, pos, Quaternion.identity, transform);
+                RectTransform rect = slot.GetComponent<RectTransform>();
 
-                slots[index] = slot.transform;
+                // 🔥 FORCE RectTransform if missing
+                if (rect == null)
+                    rect = slot.AddComponent<RectTransform>();
+
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+
+                // 🔥 IMPORTANT: use proper spacing (UI scale)
+                float offsetX = (cols - 1) * spacing * 0.5f;
+                float offsetY = (rows - 1) * spacing * 0.5f;
+
+                Vector2 pos = new Vector2(
+                    x * spacing - offsetX,
+                    -(y * spacing - offsetY)
+                );
+
+                rect.anchoredPosition = pos;
+
+                slots[index] = rect;
                 index++;
             }
         }

@@ -47,6 +47,9 @@ public class PuzzleManager : MonoBehaviour
     private List<Vector2> initialPositions = new List<Vector2>();
     [Header("UI")]
     public GameObject completePanel;
+    public GameObject slotPrefab;
+    public Transform slotParent;
+    private List<GameObject> generatedSlots = new List<GameObject>();
 
     private void Awake()
     {
@@ -62,7 +65,10 @@ public class PuzzleManager : MonoBehaviour
     void Start()
     {
         slotPieces = new GameObject[maxVisible];
+
         SpawnPieces();
+        GenerateSlotsFromPieces(); 
+         AssignGhostImages();  
         StartCoroutine(StartFlow());
     }
 
@@ -114,6 +120,63 @@ public class PuzzleManager : MonoBehaviour
         }
 
         spawnedPieces[i] = obj;
+    }
+}
+void AssignGhostImages()
+{
+    for (int i = 0; i < spawnedPieces.Length; i++)
+    {
+        DragPiece drag = spawnedPieces[i].GetComponent<DragPiece>();
+
+        if (drag != null && i < generatedSlots.Count)
+        {
+            drag.ghostImage = generatedSlots[i]; // ✅ assign slot as ghost
+        }
+    }
+}
+PuzzleSet GetSelectedSet()
+{
+    foreach (var set in puzzleSets)
+    {
+        if (set.rows == rows && set.cols == cols)
+            return set;
+    }
+
+    return null;
+}
+
+void GenerateSlotsFromPieces()
+{
+    var set = GetSelectedSet();
+    generatedSlots.Clear();
+
+    for (int i = 0; i < spawnedPieces.Length; i++)
+    {
+        RectTransform pieceRect = spawnedPieces[i].GetComponent<RectTransform>();
+
+        GameObject slot = Instantiate(slotPrefab, slotParent);
+        generatedSlots.Add(slot); // ✅ STORE SLOT
+
+        RectTransform slotRect = slot.GetComponent<RectTransform>();
+
+        if (slotRect == null)
+        {
+            Debug.LogError("❌ slotPrefab must be UI with RectTransform");
+            return;
+        }
+
+        slotRect.anchoredPosition = pieceRect.anchoredPosition;
+
+        if (set != null && set.slotSprites != null && i < set.slotSprites.Length)
+        {
+            UnityEngine.UI.Image img = slot.GetComponent<UnityEngine.UI.Image>();
+            if (img != null)
+            {
+                img.sprite = set.slotSprites[i];
+                img.SetNativeSize();
+                slot.SetActive(false);
+            }
+        }
     }
 }
 
@@ -437,4 +500,5 @@ public class PuzzleSet
     public int rows;
     public int cols;
     public GameObject[] prefabs;
+    public Sprite[] slotSprites;
 }
