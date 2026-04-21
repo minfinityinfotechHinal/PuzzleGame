@@ -18,6 +18,9 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public RectTransform dragArea;
     public Vector2 correctPosition;
     public GameObject ghostImage;
+public GameObject particleObject;
+
+
 
     private void Awake()
     {
@@ -26,6 +29,11 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         canvasGroup = gameObject.AddComponent<CanvasGroup>();
         if (ghostImage != null)
         ghostImage.SetActive(false);
+         if (particleObject != null)
+            {
+               
+                particleObject.SetActive(false); // start OFF
+            }
     }
 
    public void OnBeginDrag(PointerEventData eventData)
@@ -90,6 +98,11 @@ public void OnEndDrag(PointerEventData eventData)
     if (distance <= snapThreshold)
     {
         Debug.Log("✅ CORRECT DROP: " + gameObject.name);
+        if (particleObject != null)
+        {
+            particleObject.SetActive(true);
+        }
+
         StartCoroutine(SmoothSnap());
     }
     else
