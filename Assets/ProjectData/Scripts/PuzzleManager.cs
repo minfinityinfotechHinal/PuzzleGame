@@ -336,28 +336,28 @@ void FillFromOverflow()
     {
         RectTransform rect = piece.GetComponent<RectTransform>();
 
+        Vector2 start = rect.anchoredPosition;
+
+        // 👉 final hidden position (like before)
         float x = (maxVisible + overflowIndex) * spacing;
+        Vector2 finalTarget = new Vector2(x, 0);
+
         overflowIndex++;
 
-        Vector2 target = new Vector2(x, 0);
+        float t = 0f;
 
-        float t = 0;
-
-        while (t < 1)
+        // 🔥 STEP 1: move to overflowTarget (visual exit)
+        while (t < 1f)
         {
             t += Time.deltaTime * moveSpeed;
-            Vector2 start = rect.anchoredPosition;
-
-            while (t < 1)
-            {
-                t += Time.deltaTime * moveSpeed;
-                rect.anchoredPosition = Vector2.Lerp(start, target, t);
-                yield return null;
-            }
+            rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
             yield return null;
         }
 
-        rect.anchoredPosition = target;
+        // 🔥 STEP 2: snap to hidden slot (same as old)
+        rect.anchoredPosition = finalTarget;
+
+        // 🔥 STEP 3: hide
         piece.SetActive(false);
     }
 
