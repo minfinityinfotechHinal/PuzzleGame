@@ -250,19 +250,23 @@ public class PuzzleManager : MonoBehaviour
         banner.anchoredPosition = bannerStartPos;
         buttonsParent.anchoredPosition = buttonsStartPos;
 
-        puzzleImage.localScale = Vector3.zero;
+      //  puzzleImage.localScale = Vector3.zero;
     }
 
-    void OnPuzzleComplete()
+void OnPuzzleComplete()
 {
     completePanel.SetActive(true);
 
-    MovePuzzleAnimated();
-    SetupInitialPositions();
+    SetupInitialPositions();   // 🔹 prepare UI first
 
-    PlayCompleteAnimation();
+    MovePuzzleAnimated();      // 🔹 puzzle reacts
 
-    // 👉 Delay idle effects (VERY IMPORTANT)
+    // 🔹 delay banner slightly (feels premium)
+    DOVirtual.DelayedCall(0.2f, () =>
+    {
+        PlayCompleteAnimation();
+    });
+
     DOVirtual.DelayedCall(1f, () =>
     {
         PlayGlowEffect();
@@ -276,29 +280,32 @@ void PlayCompleteAnimation()
 {
     Sequence seq = DOTween.Sequence();
 
-    // 🎉 Banner drop
+    // 🎉 Banner drop first
     seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
         .SetEase(Ease.OutBack));
 
-    // 🧩 Puzzle scale
-    seq.Join(puzzleImage.DOScale(1f, 0.5f)
-        .SetEase(Ease.OutBack));
-
-    // 🔘 Move buttons container first (important!)
+    // 🔘 Move buttons container
     seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
         .SetEase(Ease.OutBack));
 
-    // 👉 Buttons one-by-one intro
+    // 🔥 IMPORTANT: prepare buttons BEFORE animating
+    List<RectTransform> buttons = new List<RectTransform>();
+
     for (int i = 0; i < buttonsParent.childCount; i++)
     {
         RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
 
-        btn.localScale = Vector3.zero;
+        btn.localScale = Vector3.zero;   // reset
+        buttons.Add(btn);
+    }
 
-        seq.Append(btn.DOScale(1f, 0.3f)
+    // 👉 Now animate one-by-one
+    foreach (var btn in buttons)
+    {
+        seq.Append(btn.DOScale(1f, 0.35f)
             .SetEase(Ease.OutBack));
 
-        seq.AppendInterval(0.08f); // 👈 spacing between buttons
+        seq.AppendInterval(0.08f); // spacing between buttons
     }
 }
     GameObject[] GetSelectedPrefabs()
@@ -365,42 +372,26 @@ void PlayCompleteAnimation()
     {
         RectTransform puzzleRect = puzzleImage.GetComponent<RectTransform>();
 
-        // bring to front (optional but recommended)
+        // 🔹 1. Change parent FIRST (important)
+        puzzleRect.SetParent(completedPuzzleParent, false);
         puzzleRect.SetAsLastSibling();
+
+        // optional: ensure correct final position
+        puzzleRect.anchoredPosition = Vector2.zero;
 
         Sequence seq = DOTween.Sequence();
 
-        // 🔹 Pop out
-        seq.Append(puzzleRect.DOScale(1.15f, 0.3f)
-            .SetEase(Ease.OutBack));
-
-        // 🔹 Slight lift
-        seq.Append(puzzleRect.DOMoveY(puzzleRect.position.y + 80f, 0.4f)
+        // 🔹 2. Shake
+        seq.Append(puzzleRect.DOShakeRotation(0.4f, new Vector3(0, 0, 8f), 10, 90, false)
             .SetEase(Ease.OutCubic));
 
-        // 🔹 Move to target (world space)
-        Vector3 targetWorldPos = completedPuzzleParent.position;
-
-        seq.Append(puzzleRect.DOMove(targetWorldPos, 0.6f)
-            .SetEase(Ease.InOutCubic));
-
-        // 🔹 Switch parent AFTER movement
-        seq.AppendCallback(() =>
-        {
-            puzzleRect.SetParent(completedPuzzleParent, true);
-        });
-
-        // 🔹 Final settle (UI space)
-        seq.Append(puzzleRect.DOAnchorPos(Vector2.zero, 0.3f)
+        // 🔹 3. Scale punch
+        seq.Join(puzzleRect.DOScale(1.1f, 0.3f)
             .SetEase(Ease.OutBack));
 
-        seq.Join(puzzleRect.DOScale(0.85f, 0.3f)
+        // 🔹 4. Settle
+        seq.Append(puzzleRect.DOScale(0.85f, 0.3f)
             .SetEase(Ease.OutBack));
-
-        // 🔥 NEW: smooth slight rotation AFTER settle
-        seq.Append(puzzleRect.DORotate(new Vector3(0, 0, 2.5f), 0.6f)
-            .SetEase(Ease.InOutSine)
-            .SetLoops(-1, LoopType.Yoyo));
     }
     IEnumerator MoveToOverflowPosition(GameObject piece)
     {
