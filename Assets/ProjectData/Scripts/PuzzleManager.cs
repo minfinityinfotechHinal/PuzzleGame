@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-
 public class PuzzleManager : MonoBehaviour
 {
     public static PuzzleManager Instance;
@@ -13,7 +12,7 @@ public class PuzzleManager : MonoBehaviour
     public int rows = 5;
     public int cols = 10;
 
-    [Header("Prefab Pieces")]
+    [Header("Puzzle Sets")]
     public PuzzleSet[] puzzleSets;
 
     [Header("Parents")]
@@ -26,175 +25,211 @@ public class PuzzleManager : MonoBehaviour
     public float moveDelay = 1.5f;
 
     private GameObject[] spawnedPieces;
-
-    private Coroutine rearrangeRoutine;
+    private List<GameObject> bottomPieces = new List<GameObject>();
 
     private int maxVisible = 6;
-    private int nextSpawnIndex = 0;
-    private List<GameObject> allPieces = new List<GameObject>();
-    private List<GameObject> activeBottom = new List<GameObject>();
-    private List<GameObject> bottomPieces = new List<GameObject>();
-    [SerializeField]
     private GameObject[] slotPieces;
-    private int overflowIndex = 0;
-    private Dictionary<GameObject, Coroutine> moveRoutines = new Dictionary<GameObject, Coroutine>();
 
     private Queue<GameObject> overflowQueue = new Queue<GameObject>();
     public RectTransform overflowTarget;
 
+    private int overflowIndex = 0;
     private int placedCount = 0;
     private int totalPieces = 0;
 
+    [Header("Drag")]
     public RectTransform dragArea;
-    [SerializeField]
     private List<Vector2> initialPositions = new List<Vector2>();
+
     [Header("UI")]
     public GameObject completePanel;
     public GameObject slotPrefab;
     public Transform slotParent;
     private List<GameObject> generatedSlots = new List<GameObject>();
+
+    [Header("Complete UI")]
     public RectTransform banner;
     public RectTransform puzzleImage;
     public RectTransform buttonsParent;
-
-    Vector2 bannerStartPos;
-    Vector2 bannerTargetPos;
-
-    Vector2 buttonsStartPos;
-    Vector2 buttonsTargetPos;
     public RectTransform glow;
     public RectTransform stars;
-    [Header("Complete UI")]
     public RectTransform completedPuzzleParent;
-    
 
-    private void Awake()
+    private PuzzleSet currentSet;
+
+    Vector2 bannerStartPos, bannerTargetPos;
+    Vector2 buttonsStartPos, buttonsTargetPos;
+
+    private Transform originalPuzzleParent;
+
+    // --------------------------------------------------
+    void Awake()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
     }
+
+    // ❌ DO NOTHING IN START (important for start screen)
     void Start()
     {
+        originalPuzzleParent = puzzleImage.parent;
         slotPieces = new GameObject[maxVisible];
-
-        SpawnPieces();
-        GenerateSlotsFromPieces();
-        AssignGhostImages();
-        StartCoroutine(StartFlow());
+        completePanel.SetActive(false);
     }
 
-    // ---------------- START FLOW ----------------
+    // --------------------------------------------------
+    // ✅ MAIN ENTRY POINT
+    public void StartLevel(int targetRows, int targetCols)
+    {
+        StopAllCoroutines();
+        // ✅ RESET PARENT BACK
+        puzzleImage.SetParent(originalPuzzleParent, false);
+        puzzleImage.localScale = Vector3.one;
+        puzzleImage.localRotation = Quaternion.identity;
+        placedCount = 0;
+        overflowIndex = 0;
+        completePanel.SetActive(false);
+
+        ClearCurrentLevel();
+
+        slotPieces = new GameObject[maxVisible];
+
+        rows = targetRows;
+        cols = targetCols;
+
+        currentSet = null;
+
+        foreach (var set in puzzleSets)
+        {
+            if (set.rows == rows && set.cols == cols)
+            {
+                currentSet = set;
+                break;
+            }
+        }
+
+        if (currentSet == null)
+        {
+            Debug.LogError($"❌ No PuzzleSet for {rows}x{cols}");
+            return;
+        }
+
+        InitLevel();
+    }
+
+    void InitLevel()
+    {
+        SpawnPieces();
+        GenerateSlots();
+        AssignGhostImages();
+
+        StartCoroutine(StartFlow());
+    }
+    public void LoadLevel(int levelIndex)
+    {
+        if (puzzleSets == null || puzzleSets.Length == 0)
+        {
+            Debug.LogError("❌ No puzzle sets assigned!");
+            return;
+        }
+
+        PuzzleSet set = puzzleSets[levelIndex % puzzleSets.Length];
+
+        StartLevel(set.rows, set.cols);
+    }
+
+    public void RemoveFromBottom(GameObject piece)
+    {
+        int index = System.Array.IndexOf(slotPieces, piece);
+
+        if (index >= 0)
+            slotPieces[index] = null;
+
+        bottomPieces.Remove(piece);
+
+        RearrangeBottom();
+        FillFromOverflow();
+    }
+
+    void RearrangeBottom()
+{
+    List<GameObject> valid = new List<GameObject>();
+
+    foreach (var p in slotPieces)
+        if (p != null)
+            valid.Add(p);
+
+    for (int i = 0; i < maxVisible; i++)
+        slotPieces[i] = null;
+
+    for (int i = 0; i < valid.Count; i++)
+    {
+        slotPieces[i] = valid[i];
+        StartCoroutine(MoveToSlot(valid[i], i));
+    }
+}
+
+void FillFromOverflow()
+{
+    for (int i = 0; i < maxVisible; i++)
+    {
+        if (slotPieces[i] == null && overflowQueue.Count > 0)
+        {
+            GameObject piece = overflowQueue.Dequeue();
+
+            piece.SetActive(true);
+            piece.transform.SetParent(bottomParent, true);
+
+            slotPieces[i] = piece;
+            bottomPieces.Add(piece);
+
+            StartCoroutine(MoveToSlot(piece, i));
+        }
+    }
+}
+
     IEnumerator StartFlow()
     {
         yield return new WaitForSeconds(1f);
-        yield return StartCoroutine(ScatterAndMoveToBottom());
+        yield return ScatterToBottom();
     }
 
-    // ---------------- SPAWN ----------------
+    // --------------------------------------------------
     void SpawnPieces()
     {
-        var prefabs = GetSelectedPrefabs();
+        GameObject[] prefabs = currentSet.prefabs;
+
         totalPieces = prefabs.Length;
         spawnedPieces = new GameObject[prefabs.Length];
-        initialPositions.Clear(); // ✅ reset list
+        initialPositions.Clear();
 
         for (int i = 0; i < prefabs.Length; i++)
         {
             GameObject obj = Instantiate(prefabs[i], pieceParent, false);
-            obj.SetActive(true);
 
-            // ✅ STORE POSITION IMMEDIATELY AFTER CLONE
             RectTransform rect = obj.GetComponent<RectTransform>();
             initialPositions.Add(rect.anchoredPosition);
 
+            // Setup stencil
             PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
-            if (piece != null)
-            {
-                piece.Setup(i);
-            }
+            if (piece != null) piece.Setup(i);
 
+            // Setup drag
             DragPiece drag = obj.GetComponent<DragPiece>();
             if (drag != null)
             {
                 drag.canDrag = false;
-
-
-                drag.correctPosition = initialPositions[i];
-
+                drag.correctPosition = rect.anchoredPosition;
                 drag.dragArea = dragArea;
-                // 🔥 POSITION GHOST
-                if (drag.ghostImage != null)
-                {
-                    RectTransform ghostRect = drag.ghostImage.GetComponent<RectTransform>();
-                    ghostRect.anchoredPosition = initialPositions[i];
-                }
             }
 
             spawnedPieces[i] = obj;
         }
     }
-    void AssignGhostImages()
+
+    // --------------------------------------------------
+    void GenerateSlots()
     {
-        for (int i = 0; i < spawnedPieces.Length; i++)
-        {
-            DragPiece drag = spawnedPieces[i].GetComponent<DragPiece>();
-
-            if (drag != null && i < generatedSlots.Count)
-            {
-                drag.ghostImage = generatedSlots[i]; // ✅ assign slot as ghost
-            }
-        }
-    }
-    PuzzleSet GetSelectedSet()
-    {
-        foreach (var set in puzzleSets)
-        {
-            if (set.rows == rows && set.cols == cols)
-                return set;
-        }
-
-        return null;
-    }
-   void PlayGlowEffect()
-{
-    glow.localScale = Vector3.one;
-
-    glow.DOScale(1.1f, 1.2f)
-        .SetEase(Ease.InOutSine)
-        .SetLoops(-1, LoopType.Yoyo);
-}
-
-    void PlayBannerIdle()
-    {
-        // slight rotation only (premium feel)
-        banner.DORotate(new Vector3(0, 0, 2f), 2f)
-            .SetEase(Ease.InOutSine)
-            .SetLoops(-1, LoopType.Yoyo);
-
-        // very small scale breathing
-        banner.DOScale(1.02f, 1.5f)
-            .SetEase(Ease.InOutSine)
-            .SetLoops(-1, LoopType.Yoyo);
-    }
-
-    void PlayStarsEffect()
-    {
-        stars.localRotation = Quaternion.identity;
-
-        stars.DORotate(new Vector3(0, 0, 5f), 2f)
-            .SetEase(Ease.InOutSine)
-            .SetLoops(-1, LoopType.Yoyo);
-    }
-    
-    void GenerateSlotsFromPieces()
-    {
-        var set = GetSelectedSet();
         generatedSlots.Clear();
 
         for (int i = 0; i < spawnedPieces.Length; i++)
@@ -202,126 +237,35 @@ public class PuzzleManager : MonoBehaviour
             RectTransform pieceRect = spawnedPieces[i].GetComponent<RectTransform>();
 
             GameObject slot = Instantiate(slotPrefab, slotParent);
-            generatedSlots.Add(slot); // ✅ STORE SLOT
-
             RectTransform slotRect = slot.GetComponent<RectTransform>();
-
-            if (slotRect == null)
-            {
-                Debug.LogError("❌ slotPrefab must be UI with RectTransform");
-                return;
-            }
 
             slotRect.anchoredPosition = pieceRect.anchoredPosition;
 
-            if (set != null && set.slotSprites != null && i < set.slotSprites.Length)
+            if (currentSet.slotSprites != null && i < currentSet.slotSprites.Length)
             {
-                UnityEngine.UI.Image img = slot.GetComponent<UnityEngine.UI.Image>();
-                if (img != null)
-                {
-                    img.sprite = set.slotSprites[i];
-                    img.SetNativeSize();
-                    slot.SetActive(false);
-                }
+                Image img = slot.GetComponent<Image>();
+                img.sprite = currentSet.slotSprites[i];
+                img.SetNativeSize();
+                slot.SetActive(false);
             }
+
+            generatedSlots.Add(slot);
         }
     }
 
-    public void OnPiecePlaced(DragPiece piece)
+    void AssignGhostImages()
     {
-        placedCount++;
-
-        Debug.Log($"Placed: {placedCount}/{totalPieces}");
-
-        if (placedCount >= totalPieces)
+        for (int i = 0; i < spawnedPieces.Length; i++)
         {
-            OnPuzzleComplete();
+            DragPiece drag = spawnedPieces[i].GetComponent<DragPiece>();
+
+            if (drag != null && i < generatedSlots.Count)
+                drag.ghostImage = generatedSlots[i];
         }
     }
-    void SetupInitialPositions()
-    {
-        bannerTargetPos = banner.anchoredPosition;
-        buttonsTargetPos = buttonsParent.anchoredPosition;
 
-        // Move off-screen
-        bannerStartPos = bannerTargetPos + new Vector2(0, 500);
-        buttonsStartPos = buttonsTargetPos - new Vector2(0, 500);
-
-        banner.anchoredPosition = bannerStartPos;
-        buttonsParent.anchoredPosition = buttonsStartPos;
-
-      //  puzzleImage.localScale = Vector3.zero;
-    }
-
-void OnPuzzleComplete()
-{
-    completePanel.SetActive(true);
-
-    SetupInitialPositions();   // 🔹 prepare UI first
-
-    MovePuzzleAnimated();      // 🔹 puzzle reacts
-
-    // 🔹 delay banner slightly (feels premium)
-    DOVirtual.DelayedCall(0.2f, () =>
-    {
-        PlayCompleteAnimation();
-    });
-
-    DOVirtual.DelayedCall(1f, () =>
-    {
-        PlayGlowEffect();
-        PlayStarsEffect();
-        PlayBannerIdle();
-    });
-
-    StopAllCoroutines();
-}
-void PlayCompleteAnimation()
-{
-    Sequence seq = DOTween.Sequence();
-
-    // 🎉 Banner drop first
-    seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
-        .SetEase(Ease.OutBack));
-
-    // 🔘 Move buttons container
-    seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
-        .SetEase(Ease.OutBack));
-
-    // 🔥 IMPORTANT: prepare buttons BEFORE animating
-    List<RectTransform> buttons = new List<RectTransform>();
-
-    for (int i = 0; i < buttonsParent.childCount; i++)
-    {
-        RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
-
-        btn.localScale = Vector3.zero;   // reset
-        buttons.Add(btn);
-    }
-
-    // 👉 Now animate one-by-one
-    foreach (var btn in buttons)
-    {
-        seq.Append(btn.DOScale(1f, 0.35f)
-            .SetEase(Ease.OutBack));
-
-        seq.AppendInterval(0.08f); // spacing between buttons
-    }
-}
-    GameObject[] GetSelectedPrefabs()
-    {
-        foreach (var set in puzzleSets)
-        {
-            if (set.rows == rows && set.cols == cols)
-                return set.prefabs;
-        }
-
-        Debug.LogError("❌ No matching prefab set found!");
-        return null;
-    }
-
-    // ---------------- COMMON FLOW (USED BY START + RESET) ----------------
-    IEnumerator ScatterAndMoveToBottom()
+    // --------------------------------------------------
+    IEnumerator ScatterToBottom()
     {
         yield return new WaitForSeconds(moveDelay);
 
@@ -329,167 +273,53 @@ void PlayCompleteAnimation()
 
         while (remaining.Count > 0)
         {
-            int groupSize = Random.Range(3, 5); // 3–4 pieces
+            int group = Random.Range(3, 5);
 
-            for (int i = 0; i < groupSize && remaining.Count > 0; i++)
+            for (int i = 0; i < group && remaining.Count > 0; i++)
             {
-                int randIndex = Random.Range(0, remaining.Count);
-
-                GameObject piece = remaining[randIndex];
-                remaining.RemoveAt(randIndex);
+                int index = Random.Range(0, remaining.Count);
+                GameObject piece = remaining[index];
+                remaining.RemoveAt(index);
 
                 MoveToBottom(piece);
             }
 
-            yield return new WaitForSeconds(0.1f); // small delay between groups
+            yield return new WaitForSeconds(0.1f);
         }
     }
-    
 
+    // --------------------------------------------------
     public void MoveToBottom(GameObject piece)
     {
         RectTransform rect = piece.GetComponent<RectTransform>();
         rect.SetParent(bottomParent, true);
 
-        int slot = GetRandomEmptySlot();
+        int slot = GetEmptySlot();
 
         if (slot != -1)
         {
             slotPieces[slot] = piece;
             bottomPieces.Add(piece);
-
-            StartCoroutine(MoveToSlot(piece, slot, true));
+            StartCoroutine(MoveToSlot(piece, slot));
         }
         else
         {
-            // 🔥 NO SLOT AVAILABLE → go to overflow queue
             overflowQueue.Enqueue(piece);
-            StartCoroutine(MoveToOverflowPosition(piece));
+            StartCoroutine(MoveToOverflow(piece));
         }
     }
+    
 
-    void MovePuzzleAnimated()
-    {
-        RectTransform puzzleRect = puzzleImage.GetComponent<RectTransform>();
-
-        // 🔹 1. Change parent FIRST (important)
-        puzzleRect.SetParent(completedPuzzleParent, false);
-        puzzleRect.SetAsLastSibling();
-
-        // optional: ensure correct final position
-        puzzleRect.anchoredPosition = Vector2.zero;
-
-        Sequence seq = DOTween.Sequence();
-
-        // 🔹 2. Shake
-        seq.Append(puzzleRect.DOShakeRotation(0.4f, new Vector3(0, 0, 8f), 10, 90, false)
-            .SetEase(Ease.OutCubic));
-
-        // 🔹 3. Scale punch
-        seq.Join(puzzleRect.DOScale(1.1f, 0.3f)
-            .SetEase(Ease.OutBack));
-
-        // 🔹 4. Settle
-        seq.Append(puzzleRect.DOScale(0.85f, 0.3f)
-            .SetEase(Ease.OutBack));
-    }
-    IEnumerator MoveToOverflowPosition(GameObject piece)
+    IEnumerator MoveToSlot(GameObject piece, int index)
     {
         RectTransform rect = piece.GetComponent<RectTransform>();
 
         Vector2 start = rect.anchoredPosition;
+        Vector2 target = new Vector2(index * spacing, 0);
 
-        // 👉 each overflow piece gets unique position
-        float x = (maxVisible + overflowIndex) * spacing;
+        float t = 0;
 
-        Vector2 target = new Vector2(x, 0f);
-
-        overflowIndex++;
-
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime * moveSpeed;
-            rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
-            yield return null;
-        }
-
-        rect.anchoredPosition = target;
-
-        piece.SetActive(false);
-        // rect.anchoredPosition = new Vector3
-    }
-    int GetRandomEmptySlot()
-    {
-        List<int> empty = new List<int>();
-
-        for (int i = 0; i < maxVisible; i++)
-        {
-            if (slotPieces[i] == null)
-                empty.Add(i);
-        }
-
-        if (empty.Count == 0)
-            return -1;
-
-        return empty[Random.Range(0, empty.Count)];
-    }
-
-
-
-
-    // ---------------- ADD TO BOTTOM ----------------
-    public void AddToBottom(GameObject piece)
-    {
-        if (piece == null) return;
-        if (bottomPieces.Contains(piece)) return;
-
-        piece.SetActive(true);
-        piece.transform.SetParent(bottomParent, false);
-
-        bottomPieces.Add(piece);
-
-        int index = bottomPieces.Count - 1;
-        Vector2 targetPos = GetSlotPositionUI(index);
-
-        if (moveRoutines.ContainsKey(piece))
-        {
-            StopCoroutine(moveRoutines[piece]);
-        }
-
-        Coroutine move = StartCoroutine(MoveToSlot(piece, index, true));
-    }
-
-
-    // ---------------- SLOT POSITION ----------------
-    Vector2 GetSlotPositionUI(int index)
-    {
-        float x = index * spacing; // ✅ fixed, no shifting
-        return new Vector2(x, 0f);
-    }
-
-    // ---------------- MOVE ----------------
-    IEnumerator MoveToSlot(GameObject piece, int slotIndex, bool occupySlot)
-    {
-        RectTransform rect = piece.GetComponent<RectTransform>();
-
-        Vector2 start = rect.anchoredPosition;
-        Vector2 target;
-
-        if (slotIndex == -1)
-        {
-            // move somewhere off-screen or default bottom position
-            target = new Vector2(0, -300);
-        }
-        else
-        {
-            target = GetSlotPositionUI(slotIndex);
-        }
-
-        float t = 0f;
-
-        while (t < 1f)
+        while (t < 1)
         {
             t += Time.deltaTime * moveSpeed;
             rect.anchoredPosition = Vector2.Lerp(start, target, t);
@@ -498,123 +328,211 @@ void PlayCompleteAnimation()
 
         rect.anchoredPosition = target;
 
-        // ✔ after reaching destination
         DragPiece drag = piece.GetComponent<DragPiece>();
-        if (drag != null)
-        {
-            drag.canDrag = true; // ✅ ENABLE DRAG HERE
-        }
-
-        if (!occupySlot)
-        {
-            piece.SetActive(false);
-        }
-    }
-    public void RemoveFromBottom(GameObject piece)
-    {
-        int index = System.Array.IndexOf(slotPieces, piece);
-
-        if (index >= 0)
-        {
-            slotPieces[index] = null;
-        }
-
-        bottomPieces.Remove(piece);
-
-        // ❌ DO NOT disable → user is dragging it
-        // piece.SetActive(false);
-
-        // 🔥 REARRANGE remaining pieces
-        RearrangeBottom();
-
-        // 🔥 FILL EMPTY SLOTS FROM OVERFLOW
-        FillFromOverflow();
+        if (drag != null) drag.canDrag = true;
     }
 
-    void RearrangeBottom()
+    IEnumerator MoveToOverflow(GameObject piece)
     {
-        List<GameObject> newList = new List<GameObject>();
-
-        // collect valid pieces
-        foreach (var p in slotPieces)
-        {
-            if (p != null)
-                newList.Add(p);
-        }
-
-        // reset slots
-        for (int i = 0; i < maxVisible; i++)
-        {
-            slotPieces[i] = null;
-        }
-
-        // reassign compact positions
-        for (int i = 0; i < newList.Count; i++)
-        {
-            GameObject piece = newList[i];
-            slotPieces[i] = piece;
-
-            StartCoroutine(MoveToSlot(piece, i, true));
-        }
-    }
-
-    void FillFromOverflow()
-    {
-        for (int i = 0; i < maxVisible; i++)
-        {
-            if (slotPieces[i] == null && overflowQueue.Count > 0)
-            {
-                GameObject piece = overflowQueue.Dequeue();
-
-                piece.SetActive(true);
-
-                RectTransform rect = piece.GetComponent<RectTransform>();
-                rect.SetParent(bottomParent, true);
-
-                slotPieces[i] = piece;
-                bottomPieces.Add(piece);
-
-                StartCoroutine(MoveToSlot(piece, i, true));
-            }
-        }
-    }
-    void TryFillRandomSlot()
-    {
-        if (nextSpawnIndex >= spawnedPieces.Length)
-            return;
-
-        int slot = GetRandomEmptySlot();
-        if (slot == -1)
-            return;
-
-        GameObject piece = spawnedPieces[nextSpawnIndex];
-        nextSpawnIndex++;
-
         RectTransform rect = piece.GetComponent<RectTransform>();
-        rect.SetParent(bottomParent, true);
 
-        slotPieces[slot] = piece;
-        bottomPieces.Add(piece);
+        float x = (maxVisible + overflowIndex) * spacing;
+        overflowIndex++;
 
-        StartCoroutine(MoveToSlot(piece, slot, true));
-    }
+        Vector2 target = new Vector2(x, 0);
 
-    // ---------------- RESET (🔥 MAIN FEATURE) ----------------
-    public void ResetAllPieces()
-    {
-        StopAllCoroutines();
+        float t = 0;
 
-        bottomPieces.Clear();
-        moveRoutines.Clear();
-
-        foreach (var piece in spawnedPieces)
+        while (t < 1)
         {
-            var drag = piece.GetComponent<DragPiece>();
-            if (drag != null)
-                drag.ResetPiece();
+            t += Time.deltaTime * moveSpeed;
+            Vector2 start = rect.anchoredPosition;
+
+            while (t < 1)
+            {
+                t += Time.deltaTime * moveSpeed;
+                rect.anchoredPosition = Vector2.Lerp(start, target, t);
+                yield return null;
+            }
+            yield return null;
         }
 
-        StartCoroutine(ScatterAndMoveToBottom());
+        rect.anchoredPosition = target;
+        piece.SetActive(false);
+    }
+
+    int GetEmptySlot()
+    {
+        for (int i = 0; i < maxVisible; i++)
+            if (slotPieces[i] == null)
+                return i;
+
+        return -1;
+    }
+
+    // --------------------------------------------------
+    public void OnPiecePlaced(DragPiece piece)
+    {
+        placedCount++;
+
+        // 🔥 VERY IMPORTANT
+        RemoveFromBottom(piece.gameObject);
+
+        if (placedCount >= totalPieces)
+            OnPuzzleComplete();
+    }
+
+   void OnPuzzleComplete()
+{
+    completePanel.SetActive(true);
+
+    SetupUI();
+
+    PlayFullCompleteSequence(); // 👈 ONLY ONE ENTRY POINT
+}
+
+void PlayFullCompleteSequence()
+{
+    RectTransform rect = puzzleImage;
+
+    rect.SetParent(completedPuzzleParent, false);
+
+    // ✅ Start slightly bigger (important!)
+    rect.localScale = Vector3.one * 1.05f;
+    rect.localRotation = Quaternion.identity;
+
+    Sequence seq = DOTween.Sequence();
+
+    // 🔥 STEP 1: subtle shake ONLY (no scale up)
+    seq.Append(rect.DOShakeRotation(0.3f, 3f));
+
+    // 🔥 STEP 2: smooth scale DOWN + rotate
+    seq.Append(rect.DOScale(0.9f, 0.4f).SetEase(Ease.InOutQuad))
+       .Join(rect.DORotate(new Vector3(0, 0, 2.5f), 0.4f)
+       .SetEase(Ease.InOutSine));
+
+    // 🔥 optional micro settle (very premium feel)
+    seq.Append(rect.DOScale(0.92f, 0.15f))
+       .Append(rect.DOScale(0.9f, 0.1f));
+
+    // ⏳ pause
+    seq.AppendInterval(0.15f);
+
+    // 🔥 UI after everything
+    seq.AppendCallback(() => PlayCompleteUI());
+}
+
+void PlayCompleteUI()
+{
+    Sequence seq = DOTween.Sequence();
+
+    // Banner first
+    seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
+        .SetEase(Ease.OutBack));
+
+    // Buttons container
+    seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
+        .SetEase(Ease.OutBack));
+
+    // Prepare buttons
+    List<RectTransform> buttons = new List<RectTransform>();
+
+    for (int i = 0; i < buttonsParent.childCount; i++)
+    {
+        RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
+        btn.localScale = Vector3.zero;
+        buttons.Add(btn);
+    }
+
+    // Animate one by one
+    foreach (var btn in buttons)
+    {
+        seq.Append(btn.DOScale(1f, 0.35f).SetEase(Ease.OutBack));
+        seq.AppendInterval(0.08f);
+    }
+
+    // Effects start at end
+    seq.AppendCallback(() => PlayEffects());
+}
+    void SetupUI()
+    {
+        bannerTargetPos = banner.anchoredPosition;
+        buttonsTargetPos = buttonsParent.anchoredPosition;
+
+        banner.anchoredPosition += Vector2.up * 500;
+        buttonsParent.anchoredPosition -= Vector2.up * 500;
+    }
+
+   void MovePuzzleAnim()
+    {
+        RectTransform rect = puzzleImage;
+
+        rect.SetParent(completedPuzzleParent, false);
+
+        // ✅ Reset scale to avoid inherited scaling issues
+        rect.localScale = Vector3.one;
+
+        Sequence seq = DOTween.Sequence();
+
+            // 🔹 Step 1: slight grow
+    seq.Append(rect.DOScale(1.05f, 0.25f).SetEase(Ease.OutQuad))
+
+    // 🔹 Step 2: scale down + smooth rotate together
+    .Append(rect.DOScale(0.9f, 0.4f).SetEase(Ease.InOutQuad))
+    .Join(rect.DORotate(new Vector3(0, 0, 2.5f), 0.4f).SetEase(Ease.InOutSine));
+    }
+    void PlayCompleteAnimation()
+    {
+        Sequence seq = DOTween.Sequence();
+
+        // 🔹 Move banner
+        seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
+            .SetEase(Ease.OutBack));
+
+        // 🔹 Move buttons container
+        seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
+            .SetEase(Ease.OutBack));
+
+        // 🔥 IMPORTANT: prepare buttons FIRST
+        List<RectTransform> buttons = new List<RectTransform>();
+
+        for (int i = 0; i < buttonsParent.childCount; i++)
+        {
+            RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
+
+            btn.localScale = Vector3.zero; // 👈 reset scale
+            buttons.Add(btn);
+        }
+
+        // 🔹 Animate one by one
+        foreach (var btn in buttons)
+        {
+            seq.Append(btn.DOScale(1f, 0.35f).SetEase(Ease.OutBack));
+            seq.AppendInterval(0.08f); // spacing
+        }
+    }
+
+    void PlayEffects()
+    {
+        glow.DOScale(1.1f, 1.2f).SetLoops(-1, LoopType.Yoyo);
+        stars.DORotate(new Vector3(0, 0, 5f), 2f).SetLoops(-1, LoopType.Yoyo);
+    }
+
+    // --------------------------------------------------
+    void ClearCurrentLevel()
+    {
+        if (spawnedPieces != null)
+        {
+            foreach (var p in spawnedPieces)
+                if (p) Destroy(p);
+        }
+
+        foreach (var s in generatedSlots)
+            if (s) Destroy(s);
+
+        generatedSlots.Clear();
+        bottomPieces.Clear();
+        overflowQueue.Clear();
     }
 }
 
@@ -626,3 +544,4 @@ public class PuzzleSet
     public GameObject[] prefabs;
     public Sprite[] slotSprites;
 }
+ 

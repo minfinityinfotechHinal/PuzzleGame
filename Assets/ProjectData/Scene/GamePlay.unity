@@ -129,7 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 24558421}
   - component: {fileID: 24558423}
-  - component: {fileID: 24558422}
+  - component: {fileID: 24558424}
   m_Layer: 0
   m_Name: Managers
   m_TagString: Untagged
@@ -152,18 +152,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &24558422
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 24558420}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 65584b9b3b0cc45e88e41a8ec5f4ff77, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SortingManager
 --- !u!114 &24558423
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -288,10 +276,8 @@ MonoBehaviour:
   spacing: 250
   moveSpeed: 5
   moveDelay: 0.6
-  slotPieces: []
   overflowTarget: {fileID: 1114038084}
   dragArea: {fileID: 41782810}
-  initialPositions: []
   completePanel: {fileID: 8861077397013286219}
   slotPrefab: {fileID: 304664555959946235, guid: 8006bf674e51b4bce830bdb8af8f2ca8, type: 3}
   slotParent: {fileID: 249899751}
@@ -301,6 +287,22 @@ MonoBehaviour:
   glow: {fileID: 4029649931814634943}
   stars: {fileID: 5618766531520926863}
   completedPuzzleParent: {fileID: 4210995878326299756}
+--- !u!114 &24558424
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 24558420}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ad82dacb22ddb482c9fffc295f269aa2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GameManager
+  startScreen: {fileID: 853127588}
+  gameplayScreen: {fileID: 414349015}
+  completeScreen: {fileID: 8861077397013286219}
+  currentLevel: 0
 --- !u!1 &29581581
 GameObject:
   m_ObjectHideFlags: 0
@@ -1105,7 +1107,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &414349016
 RectTransform:
   m_ObjectHideFlags: 0
@@ -1160,7 +1162,7 @@ GameObject:
   - component: {fileID: 434531540}
   - component: {fileID: 434531539}
   m_Layer: 5
-  m_Name: Button
+  m_Name: StartBTN
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1230,10 +1232,10 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 853127592}
-        m_TargetAssemblyTypeName: UnityEngine.Canvas, UnityEngine
-        m_MethodName: set_enabled
-        m_Mode: 6
+      - m_Target: {fileID: 24558424}
+        m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
+        m_MethodName: PlayDefaultLevel
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
@@ -2135,10 +2137,8 @@ MonoBehaviour:
   spacing: 1.5
   moveSpeed: 8
   moveDelay: 1.5
-  slotPieces: []
   overflowTarget: {fileID: 0}
   dragArea: {fileID: 0}
-  initialPositions: []
   completePanel: {fileID: 0}
   slotPrefab: {fileID: 0}
   slotParent: {fileID: 0}
@@ -5496,7 +5496,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 3652860606031282004}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 24558424}
+        m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
+        m_MethodName: ReplayLevel
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!1 &2031436842282407831
 GameObject:
   m_ObjectHideFlags: 0
@@ -5612,7 +5624,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 6728118719239253982}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 24558424}
+        m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
+        m_MethodName: NextLevel
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!1 &3108282756775456431
 GameObject:
   m_ObjectHideFlags: 0
@@ -5672,7 +5696,7 @@ GameObject:
   - component: {fileID: 3652860606031282004}
   - component: {fileID: 1930083084658406106}
   m_Layer: 5
-  m_Name: Button (2)
+  m_Name: ReplayBTN
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -5808,7 +5832,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 2214085949104296979}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 24558424}
+        m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
+        m_MethodName: LoadLevel
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!224 &4309931153072175192
 RectTransform:
   m_ObjectHideFlags: 0
@@ -6079,7 +6115,7 @@ GameObject:
   - component: {fileID: 6728118719239253982}
   - component: {fileID: 2693463777732635998}
   m_Layer: 5
-  m_Name: Button (1)
+  m_Name: NextBTN
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -6326,7 +6362,7 @@ GameObject:
   - component: {fileID: 2214085949104296979}
   - component: {fileID: 4308452316169130441}
   m_Layer: 5
-  m_Name: Button
+  m_Name: LevelBTN
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
