@@ -382,13 +382,14 @@ void FillFromOverflow()
             OnPuzzleComplete();
     }
 
-   void OnPuzzleComplete()
+ void OnPuzzleComplete()
 {
     completePanel.SetActive(true);
 
-    SetupUI();
+    SetupUI();              // ✅ FIRST set correct positions
+    ResetCompletePanel();   // ✅ THEN reset using correct values
 
-    PlayFullCompleteSequence(); // 👈 ONLY ONE ENTRY POINT
+    PlayFullCompleteSequence();
 }
 
 void PlayFullCompleteSequence()
@@ -455,13 +456,14 @@ void PlayCompleteUI()
     seq.AppendCallback(() => PlayEffects());
 }
     void SetupUI()
-    {
-        bannerTargetPos = banner.anchoredPosition;
-        buttonsTargetPos = buttonsParent.anchoredPosition;
+{
+    bannerTargetPos = banner.anchoredPosition;
+    buttonsTargetPos = buttonsParent.anchoredPosition;
 
-        banner.anchoredPosition += Vector2.up * 500;
-        buttonsParent.anchoredPosition -= Vector2.up * 500;
-    }
+    // ❗ ALWAYS SET (not +=)
+    banner.anchoredPosition = bannerTargetPos + Vector2.up * 500;
+    buttonsParent.anchoredPosition = buttonsTargetPos - Vector2.up * 500;
+}
 
    void MovePuzzleAnim()
     {
@@ -533,6 +535,67 @@ void PlayCompleteUI()
         generatedSlots.Clear();
         bottomPieces.Clear();
         overflowQueue.Clear();
+    }
+
+    public void HideCompletePanel(System.Action onComplete)
+    {
+        Sequence seq = DOTween.Sequence();
+
+        // 🔻 Move buttons down
+        seq.Append(buttonsParent.DOAnchorPos(
+            buttonsTargetPos - Vector2.up * 500, 0.4f)
+            .SetEase(Ease.InBack));
+
+        // 🔻 Move banner up
+        seq.Join(banner.DOAnchorPos(
+            bannerTargetPos + Vector2.up * 500, 0.4f)
+            .SetEase(Ease.InBack));
+
+        // 🔻 Scale down puzzle slightly (nice touch)
+        seq.Join(puzzleImage.DOScale(0.85f, 0.3f));
+
+        // 🔻 Stop effects
+        seq.AppendCallback(() =>
+        {
+            glow.DOKill();
+            stars.DOKill();
+        });
+
+        // 🔻 Finally disable panel
+        seq.AppendCallback(() =>
+        {
+            completePanel.SetActive(false);
+            onComplete?.Invoke(); // 👉 continue flow
+        });
+    }
+
+    void ResetCompletePanel()
+    {
+        // 🔥 Kill all tweens related to this UI
+        banner.DOKill();
+        buttonsParent.DOKill();
+        puzzleImage.DOKill();
+        glow.DOKill();
+        stars.DOKill();
+
+        // 🔥 Reset positions (VERY IMPORTANT)
+        banner.anchoredPosition = bannerTargetPos + Vector2.up * 500;
+        buttonsParent.anchoredPosition = buttonsTargetPos - Vector2.up * 500;
+
+        // 🔥 Reset puzzle
+        puzzleImage.localScale = Vector3.one;
+        puzzleImage.localRotation = Quaternion.identity;
+
+        // 🔥 Reset buttons scale
+        for (int i = 0; i < buttonsParent.childCount; i++)
+        {
+            RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
+            btn.localScale = Vector3.zero;
+        }
+
+        // 🔥 Reset effects
+        glow.localScale = Vector3.one;
+        stars.localRotation = Quaternion.identity;
     }
 }
 

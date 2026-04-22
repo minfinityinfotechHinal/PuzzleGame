@@ -54,9 +54,11 @@ public class GameManager : MonoBehaviour
     // ---------------- BACK BUTTON ----------------
     public void BackToMenu()
     {
-        ShowStartScreen();
+        PuzzleManager.Instance.HideCompletePanel(() =>
+        {
+            ShowStartScreen();
+        });
     }
-
     // ---------------- USING INDEX (optional) ----------------
     public void PlayLevelByIndex(int index)
     {
@@ -93,20 +95,26 @@ public class GameManager : MonoBehaviour
     }
 
     // ---------------- NEXT ----------------
-    public void NextLevel()
-    {
-        currentLevel++;
-        SaveLevel();
+public void NextLevel()
+{
+    currentLevel++;
+    SaveLevel();
 
+    PuzzleManager.Instance.HideCompletePanel(() =>
+    {
         PuzzleManager.Instance.LoadLevel(currentLevel);
-    }
+    });
+}
 
     // ---------------- REPLAY ----------------
-    public void ReplayLevel()
+  public void ReplayLevel()
 {
-    PuzzleManager.Instance.StartLevel(
-        PuzzleManager.Instance.rows,
-        PuzzleManager.Instance.cols
-    );
+    PuzzleManager.Instance.HideCompletePanel(() =>
+    {
+        PuzzleManager.Instance.StartLevel(
+            PuzzleManager.Instance.rows,
+            PuzzleManager.Instance.cols
+        );
+    });
 }
 }
