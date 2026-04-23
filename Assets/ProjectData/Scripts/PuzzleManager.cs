@@ -55,6 +55,10 @@ public class PuzzleManager : MonoBehaviour
     public RectTransform stars;
     public RectTransform completedPuzzleParent;
 
+    [Header("Merge System")] // ADD THIS SECTION
+    public List<PuzzlePiece> allPieces = new List<PuzzlePiece>();
+    public float cellSize = 100f; // exact spacing between pieces
+
     private PuzzleSet currentSet;
 
     Vector2 bannerStartPos, bannerTargetPos;
@@ -125,6 +129,7 @@ public class PuzzleManager : MonoBehaviour
 
         StartCoroutine(StartFlow());
     }
+    
     public void LoadLevel(int levelIndex)
     {
         if (puzzleSets == null || puzzleSets.Length == 0)
@@ -151,42 +156,74 @@ public class PuzzleManager : MonoBehaviour
         FillFromOverflow();
     }
 
-    void RearrangeBottom()
-{
-    List<GameObject> valid = new List<GameObject>();
-
-    foreach (var p in slotPieces)
-        if (p != null)
-            valid.Add(p);
-
-    for (int i = 0; i < maxVisible; i++)
-        slotPieces[i] = null;
-
-    for (int i = 0; i < valid.Count; i++)
+    // Add this method to assign neighbor relationships after spawning
+    void AssignNeighbors()
     {
-        slotPieces[i] = valid[i];
-        StartCoroutine(MoveToSlot(valid[i], i));
-    }
-}
-
-void FillFromOverflow()
-{
-    for (int i = 0; i < maxVisible; i++)
-    {
-        if (slotPieces[i] == null && overflowQueue.Count > 0)
+        for (int i = 0; i < spawnedPieces.Length; i++)
         {
-            GameObject piece = overflowQueue.Dequeue();
+            PuzzlePiece piece = spawnedPieces[i].GetComponent<PuzzlePiece>();
+            if (piece == null) continue;
 
-            piece.SetActive(true);
-            piece.transform.SetParent(bottomParent, true);
+            int row = i / cols;
+            int col = i % cols;
 
-            slotPieces[i] = piece;
-            bottomPieces.Add(piece);
+            piece.row = row;
+            piece.col = col;
 
-            StartCoroutine(MoveToSlot(piece, i));
+            // LEFT
+            if (col > 0)
+                piece.left = spawnedPieces[i - 1].GetComponent<PuzzlePiece>();
+
+            // RIGHT
+            if (col < cols - 1)
+                piece.right = spawnedPieces[i + 1].GetComponent<PuzzlePiece>();
+
+            // TOP
+            if (row > 0)
+                piece.top = spawnedPieces[i - cols].GetComponent<PuzzlePiece>();
+
+            // BOTTOM
+            if (row < rows - 1)
+                piece.bottom = spawnedPieces[i + cols].GetComponent<PuzzlePiece>();
         }
     }
-}
+
+    void RearrangeBottom()
+    {
+        List<GameObject> valid = new List<GameObject>();
+
+        foreach (var p in slotPieces)
+            if (p != null)
+                valid.Add(p);
+
+        for (int i = 0; i < maxVisible; i++)
+            slotPieces[i] = null;
+
+        for (int i = 0; i < valid.Count; i++)
+        {
+            slotPieces[i] = valid[i];
+            StartCoroutine(MoveToSlot(valid[i], i));
+        }
+    }
+
+    void FillFromOverflow()
+    {
+        for (int i = 0; i < maxVisible; i++)
+        {
+            if (slotPieces[i] == null && overflowQueue.Count > 0)
+            {
+                GameObject piece = overflowQueue.Dequeue();
+
+                piece.SetActive(true);
+                piece.transform.SetParent(bottomParent, true);
+
+                slotPieces[i] = piece;
+                bottomPieces.Add(piece);
+
+                StartCoroutine(MoveToSlot(piece, i));
+            }
+        }
+    }
 
     IEnumerator StartFlow()
     {
@@ -202,6 +239,7 @@ void FillFromOverflow()
         totalPieces = prefabs.Length;
         spawnedPieces = new GameObject[prefabs.Length];
         initialPositions.Clear();
+        allPieces.Clear(); // Clear the list before spawning new pieces
 
         for (int i = 0; i < prefabs.Length; i++)
         {
@@ -212,7 +250,11 @@ void FillFromOverflow()
 
             // Setup stencil
             PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
-            if (piece != null) piece.Setup(i);
+            if (piece != null) 
+            {
+                piece.Setup(i);
+                allPieces.Add(piece); // ADD TO LIST FOR MERGE SYSTEM
+            }
 
             // Setup drag
             DragPiece drag = obj.GetComponent<DragPiece>();
@@ -225,6 +267,9 @@ void FillFromOverflow()
 
             spawnedPieces[i] = obj;
         }
+        
+        // Assign neighbor relationships after all pieces are spawned
+        AssignNeighbors();
     }
 
     // --------------------------------------------------
@@ -382,136 +427,88 @@ void FillFromOverflow()
             OnPuzzleComplete();
     }
 
- void OnPuzzleComplete()
-{
-    completePanel.SetActive(true);
-
-    SetupUI();              // ✅ FIRST set correct positions
-    ResetCompletePanel();   // ✅ THEN reset using correct values
-
-    PlayFullCompleteSequence();
-}
-
-void PlayFullCompleteSequence()
-{
-    RectTransform rect = puzzleImage;
-
-    rect.SetParent(completedPuzzleParent, false);
-
-    // ✅ Start slightly bigger (important!)
-    rect.localScale = Vector3.one * 1.05f;
-    rect.localRotation = Quaternion.identity;
-
-    Sequence seq = DOTween.Sequence();
-
-    // 🔥 STEP 1: subtle shake ONLY (no scale up)
-    seq.Append(rect.DOShakeRotation(0.3f, 3f));
-
-    // 🔥 STEP 2: smooth scale DOWN + rotate
-    seq.Append(rect.DOScale(0.9f, 0.4f).SetEase(Ease.InOutQuad))
-       .Join(rect.DORotate(new Vector3(0, 0, 2.5f), 0.4f)
-       .SetEase(Ease.InOutSine));
-
-    // 🔥 optional micro settle (very premium feel)
-    seq.Append(rect.DOScale(0.92f, 0.15f))
-       .Append(rect.DOScale(0.9f, 0.1f));
-
-    // ⏳ pause
-    seq.AppendInterval(0.15f);
-
-    // 🔥 UI after everything
-    seq.AppendCallback(() => PlayCompleteUI());
-}
-
-void PlayCompleteUI()
-{
-    Sequence seq = DOTween.Sequence();
-
-    // Banner first
-    seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
-        .SetEase(Ease.OutBack));
-
-    // Buttons container
-    seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
-        .SetEase(Ease.OutBack));
-
-    // Prepare buttons
-    List<RectTransform> buttons = new List<RectTransform>();
-
-    for (int i = 0; i < buttonsParent.childCount; i++)
+    void OnPuzzleComplete()
     {
-        RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
-        btn.localScale = Vector3.zero;
-        buttons.Add(btn);
+        completePanel.SetActive(true);
+
+        SetupUI();              // ✅ FIRST set correct positions
+        ResetCompletePanel();   // ✅ THEN reset using correct values
+
+        PlayFullCompleteSequence();
     }
 
-    // Animate one by one
-    foreach (var btn in buttons)
-    {
-        seq.Append(btn.DOScale(1f, 0.35f).SetEase(Ease.OutBack));
-        seq.AppendInterval(0.08f);
-    }
-
-    // Effects start at end
-    seq.AppendCallback(() => PlayEffects());
-}
-    void SetupUI()
-{
-    bannerTargetPos = banner.anchoredPosition;
-    buttonsTargetPos = buttonsParent.anchoredPosition;
-
-    // ❗ ALWAYS SET (not +=)
-    banner.anchoredPosition = bannerTargetPos + Vector2.up * 500;
-    buttonsParent.anchoredPosition = buttonsTargetPos - Vector2.up * 500;
-}
-
-   void MovePuzzleAnim()
+    void PlayFullCompleteSequence()
     {
         RectTransform rect = puzzleImage;
 
         rect.SetParent(completedPuzzleParent, false);
 
-        // ✅ Reset scale to avoid inherited scaling issues
-        rect.localScale = Vector3.one;
+        // ✅ Start slightly bigger (important!)
+        rect.localScale = Vector3.one * 1.05f;
+        rect.localRotation = Quaternion.identity;
 
         Sequence seq = DOTween.Sequence();
 
-            // 🔹 Step 1: slight grow
-    seq.Append(rect.DOScale(1.05f, 0.25f).SetEase(Ease.OutQuad))
+        // 🔥 STEP 1: subtle shake ONLY (no scale up)
+        seq.Append(rect.DOShakeRotation(0.3f, 3f));
 
-    // 🔹 Step 2: scale down + smooth rotate together
-    .Append(rect.DOScale(0.9f, 0.4f).SetEase(Ease.InOutQuad))
-    .Join(rect.DORotate(new Vector3(0, 0, 2.5f), 0.4f).SetEase(Ease.InOutSine));
+        // 🔥 STEP 2: smooth scale DOWN + rotate
+        seq.Append(rect.DOScale(0.9f, 0.4f).SetEase(Ease.InOutQuad))
+           .Join(rect.DORotate(new Vector3(0, 0, 2.5f), 0.4f)
+           .SetEase(Ease.InOutSine));
+
+        // 🔥 optional micro settle (very premium feel)
+        seq.Append(rect.DOScale(0.92f, 0.15f))
+           .Append(rect.DOScale(0.9f, 0.1f));
+
+        // ⏳ pause
+        seq.AppendInterval(0.15f);
+
+        // 🔥 UI after everything
+        seq.AppendCallback(() => PlayCompleteUI());
     }
-    void PlayCompleteAnimation()
+
+    void PlayCompleteUI()
     {
         Sequence seq = DOTween.Sequence();
 
-        // 🔹 Move banner
+        // Banner first
         seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
             .SetEase(Ease.OutBack));
 
-        // 🔹 Move buttons container
+        // Buttons container
         seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
             .SetEase(Ease.OutBack));
 
-        // 🔥 IMPORTANT: prepare buttons FIRST
+        // Prepare buttons
         List<RectTransform> buttons = new List<RectTransform>();
 
         for (int i = 0; i < buttonsParent.childCount; i++)
         {
             RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
-
-            btn.localScale = Vector3.zero; // 👈 reset scale
+            btn.localScale = Vector3.zero;
             buttons.Add(btn);
         }
 
-        // 🔹 Animate one by one
+        // Animate one by one
         foreach (var btn in buttons)
         {
             seq.Append(btn.DOScale(1f, 0.35f).SetEase(Ease.OutBack));
-            seq.AppendInterval(0.08f); // spacing
+            seq.AppendInterval(0.08f);
         }
+
+        // Effects start at end
+        seq.AppendCallback(() => PlayEffects());
+    }
+    
+    void SetupUI()
+    {
+        bannerTargetPos = banner.anchoredPosition;
+        buttonsTargetPos = buttonsParent.anchoredPosition;
+
+        // ❗ ALWAYS SET (not +=)
+        banner.anchoredPosition = bannerTargetPos + Vector2.up * 500;
+        buttonsParent.anchoredPosition = buttonsTargetPos - Vector2.up * 500;
     }
 
     void PlayEffects()
@@ -535,6 +532,7 @@ void PlayCompleteUI()
         generatedSlots.Clear();
         bottomPieces.Clear();
         overflowQueue.Clear();
+        allPieces.Clear(); // Clear the allPieces list
     }
 
     public void HideCompletePanel(System.Action onComplete)
@@ -607,4 +605,3 @@ public class PuzzleSet
     public GameObject[] prefabs;
     public Sprite[] slotSprites;
 }
- 
