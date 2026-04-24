@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -10,18 +11,24 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     private Canvas canvas;
     private CanvasGroup canvasGroup;
 
-    private Vector2 startPos;
-   
-    public float snapThreshold = 120;   // how close is "correct"   
-    public bool canDrag = false; 
+    [Header("Settings")]
+    public float snapThreshold = 120f;   // distance to correct position for snapping
+    public bool canDrag = false;
     public RectTransform dragArea;
-    public Vector2 correctPosition;
+    public Vector2 correctPosition;      // where this piece should finally sit
     public GameObject ghostImage;
     public GameObject particleObject;
 
-    // NEW: Merge system
+    // Merge system
     private PuzzlePiece piece;
     private bool isMerging = false;
+    
+    // Cooldown to avoid double‑merge in one frame
+    private float mergeCooldown = 0.1f;
+    private float lastMergeTime = -1f;
+
+    // 👇 NEW: stores the start position of every piece in the group when drag begins
+    private Dictionary<PuzzlePiece, Vector2> groupStartPositions = new Dictionary<PuzzlePiece, Vector2>();
 
     private void Awake()
     {
@@ -29,24 +36,18 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         rectTransform = GetComponent<RectTransform>();
         canvas = GetComponentInParent<Canvas>();
         canvasGroup = gameObject.AddComponent<CanvasGroup>();
-        
-        if (ghostImage != null)
-            ghostImage.SetActive(false);
-        
-        if (particleObject != null)
-        {
-            particleObject.SetActive(false); // start OFF
-        }
+
+        if (ghostImage != null) ghostImage.SetActive(false);
+        if (particleObject != null) particleObject.SetActive(false);
     }
+
 
     public void OnBeginDrag(PointerEventData eventData)
     {
         if (isPlaced || !canDrag) return;
 
-        startPos = rectTransform.anchoredPosition;
         canvasGroup.blocksRaycasts = false;
 
-        // INFORM MANAGER BEFORE MOVING
         if (PuzzleManager.Instance != null)
             PuzzleManager.Instance.RemoveFromBottom(gameObject);
 
@@ -60,40 +61,41 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
         Vector2 delta = eventData.delta / canvas.scaleFactor;
 
-        // Move group if merged, otherwise move single piece
-        if (piece != null && piece.group != null && piece.group.pieces.Count > 1)
-        {
+        if (piece.group != null && piece.group.pieces.Count > 1)
             piece.group.Move(delta);
-        }
         else
-        {
             rectTransform.anchoredPosition += delta;
+
+        // Clamp within drag area
+        if (dragArea != null)
+        {
+            Rect areaRect = dragArea.rect;
+            Vector2 pos = rectTransform.anchoredPosition;
+
+            float minX = -areaRect.width / 2f;
+            float maxX = areaRect.width / 2f;
+            float minY = -areaRect.height / 2f;
+            float maxY = areaRect.height / 2f;
+
+            Vector2 clamped = new Vector2(
+                Mathf.Clamp(pos.x, minX, maxX),
+                Mathf.Clamp(pos.y, minY, maxY)
+            );
+
+            Vector2 correction = clamped - pos;
+            if (piece.group != null && piece.group.pieces.Count > 1)
+                piece.group.Move(correction);
+            else
+                rectTransform.anchoredPosition += correction;
         }
 
-        // Ghost image proximity check
         if (ghostImage != null)
         {
             float distance = Vector2.Distance(rectTransform.anchoredPosition, correctPosition);
-            if (distance <= snapThreshold * 1.5f)
-                ghostImage.SetActive(true);
-            else
-                ghostImage.SetActive(false);
-        }
-
-        // Drag area clamping
-        if (dragArea != null)
-        {
-            Vector3[] corners = new Vector3[4];
-            dragArea.GetWorldCorners(corners);
-
-            Vector3 pos = rectTransform.position;
-
-            pos.x = Mathf.Clamp(pos.x, corners[0].x, corners[2].x);
-            pos.y = Mathf.Clamp(pos.y, corners[0].y, corners[2].y);
-
-            rectTransform.position = pos;
+            ghostImage.SetActive(distance <= snapThreshold * 1.5f);
         }
     }
+
 
     public void OnEndDrag(PointerEventData eventData)
     {
@@ -102,138 +104,40 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         canvasGroup.blocksRaycasts = true;
         ghostImage?.SetActive(false);
 
-        // Check if piece is near correct position (single placement)
         float distance = Vector2.Distance(rectTransform.anchoredPosition, correctPosition);
 
-        Debug.Log($"Distance: {distance} | Piece: {gameObject.name}");
-
-        if (distance <= snapThreshold && !isMerging)
+        if (distance <= snapThreshold)
         {
             Debug.Log("✅ CORRECT DROP: " + gameObject.name);
-            if (particleObject != null)
-            {
-                particleObject.SetActive(true);
-            }
+            if (particleObject != null) particleObject.SetActive(true);
             StartCoroutine(SmoothSnap());
+            return;
         }
-        else
-        {
-            // Try merging with neighbors
-            CheckForMerge();
-            
-            // If no merge happened and piece is far from correct position, reset position
-            if (!isMerging)
-            {
-                Debug.Log("❌ WRONG DROP - resetting position");
-                StartCoroutine(SmoothReset());
-            }
-        }
+
+        CheckForMerge();
+        // If neither correct nor merge, piece stays where it was dropped.
     }
 
-    IEnumerator SmoothReset()
+    private void CheckForMerge()
     {
-        Vector2 start = rectTransform.anchoredPosition;
-        Vector2 target = startPos;
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime * 10f;
-            
-            if (piece != null && piece.group != null && piece.group.pieces.Count > 1)
-            {
-                foreach (var p in piece.group.pieces)
-                {
-                    RectTransform r = p.GetComponent<RectTransform>();
-                    r.anchoredPosition = Vector2.Lerp(start, target, t);
-                }
-            }
-            else
-            {
-                rectTransform.anchoredPosition = Vector2.Lerp(start, target, t);
-            }
-            yield return null;
-        }
-
-        if (piece != null && piece.group != null && piece.group.pieces.Count > 1)
-        {
-            foreach (var p in piece.group.pieces)
-            {
-                RectTransform r = p.GetComponent<RectTransform>();
-                r.anchoredPosition = target;
-            }
-        }
-        else
-        {
-            rectTransform.anchoredPosition = target;
-        }
-    }
-
-    IEnumerator SmoothSnap()
-    {
-        Vector2 start = rectTransform.anchoredPosition;
-        Vector2 target = correctPosition;
-
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime * 10f;
-            
-            if (piece != null && piece.group != null && piece.group.pieces.Count > 1)
-            {
-                foreach (var p in piece.group.pieces)
-                {
-                    RectTransform r = p.GetComponent<RectTransform>();
-                    r.anchoredPosition = Vector2.Lerp(start, target, t);
-                }
-            }
-            else
-            {
-                rectTransform.anchoredPosition = Vector2.Lerp(start, target, t);
-            }
-            yield return null;
-        }
-
-        if (piece != null && piece.group != null && piece.group.pieces.Count > 1)
-        {
-            foreach (var p in piece.group.pieces)
-            {
-                RectTransform r = p.GetComponent<RectTransform>();
-                r.anchoredPosition = target;
-            }
-        }
-        else
-        {
-            rectTransform.anchoredPosition = target;
-        }
-
-        isPlaced = true;
-
-        // INFORM MANAGER
-        if (PuzzleManager.Instance != null)
-            PuzzleManager.Instance.OnPiecePlaced(this);
-    }
-
-    void CheckForMerge()
-    {
+        if (Time.time - lastMergeTime < mergeCooldown) return;
         if (isMerging || piece == null) return;
 
         foreach (var other in PuzzleManager.Instance.allPieces)
         {
             if (other == piece) continue;
             if (other.group == piece.group) continue;
+
             if (IsNeighbor(other) && IsCorrectMatch(other) && IsEdgeMatch(other))
             {
-                isMerging = true;
+                lastMergeTime = Time.time;
                 SnapExactlyAndMerge(other);
-                Invoke(nameof(ResetMerge), 0.1f);
                 break;
             }
         }
     }
 
-    bool IsNeighbor(PuzzlePiece other)
+    private bool IsNeighbor(PuzzlePiece other)
     {
         return other == piece.left ||
                other == piece.right ||
@@ -241,103 +145,87 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                other == piece.bottom;
     }
 
-    bool IsCorrectMatch(PuzzlePiece other)
+    private bool IsCorrectMatch(PuzzlePiece other)
     {
-        if (other == piece.right && other.col == piece.col + 1 && other.row == piece.row)
-            return true;
-        if (other == piece.left && other.col == piece.col - 1 && other.row == piece.row)
-            return true;
-        if (other == piece.top && other.row == piece.row - 1 && other.col == piece.col)
-            return true;
-        if (other == piece.bottom && other.row == piece.row + 1 && other.col == piece.col)
-            return true;
+        if (other == piece.right && other.col == piece.col + 1 && other.row == piece.row) return true;
+        if (other == piece.left && other.col == piece.col - 1 && other.row == piece.row) return true;
+        if (other == piece.top && other.row == piece.row - 1 && other.col == piece.col) return true;
+        if (other == piece.bottom && other.row == piece.row + 1 && other.col == piece.col) return true;
         return false;
     }
 
-    bool IsEdgeMatch(PuzzlePiece other)
+    private bool IsEdgeMatch(PuzzlePiece other)
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
         RectTransform otherRect = other.GetComponent<RectTransform>();
-
         Vector2 myPos = myRect.anchoredPosition;
         Vector2 otherPos = otherRect.anchoredPosition;
-
         float cell = PuzzleManager.Instance.cellSize;
         float snapDistance = 35f;
         float alignTolerance = 25f;
 
-        // RIGHT
         if (other == piece.right)
         {
             float gap = (otherPos.x - myPos.x) - cell;
             float align = Mathf.Abs(otherPos.y - myPos.y);
             return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
         }
-        // LEFT
         if (other == piece.left)
         {
             float gap = (myPos.x - otherPos.x) - cell;
             float align = Mathf.Abs(otherPos.y - myPos.y);
             return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
         }
-        // TOP
         if (other == piece.top)
         {
             float gap = (otherPos.y - myPos.y) - cell;
             float align = Mathf.Abs(otherPos.x - myPos.x);
             return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
         }
-        // BOTTOM
         if (other == piece.bottom)
         {
             float gap = (myPos.y - otherPos.y) - cell;
             float align = Mathf.Abs(otherPos.x - myPos.x);
             return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
         }
-
         return false;
     }
 
-    void SnapExactlyAndMerge(PuzzlePiece other)
+    private void SnapExactlyAndMerge(PuzzlePiece other)
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
         RectTransform otherRect = other.GetComponent<RectTransform>();
-
         float cell = PuzzleManager.Instance.cellSize;
+        Vector2 myPos = myRect.anchoredPosition;
+        Vector2 otherPos = otherRect.anchoredPosition;
         Vector2 offset = Vector2.zero;
 
-        // RIGHT
         if (other == piece.right)
         {
-            float errorX = (otherRect.anchoredPosition.x - myRect.anchoredPosition.x) - cell;
-            float errorY = otherRect.anchoredPosition.y - myRect.anchoredPosition.y;
+            float errorX = (otherPos.x - myPos.x) - cell;
+            float errorY = otherPos.y - myPos.y;
             offset = new Vector2(errorX, errorY);
         }
-        // LEFT
         else if (other == piece.left)
         {
-            float errorX = (myRect.anchoredPosition.x - otherRect.anchoredPosition.x) - cell;
-            float errorY = otherRect.anchoredPosition.y - myRect.anchoredPosition.y;
+            float errorX = (myPos.x - otherPos.x) - cell;
+            float errorY = otherPos.y - myPos.y;
             offset = new Vector2(-errorX, errorY);
         }
-        // TOP
         else if (other == piece.top)
         {
-            float errorY = (otherRect.anchoredPosition.y - myRect.anchoredPosition.y) - cell;
-            float errorX = otherRect.anchoredPosition.x - myRect.anchoredPosition.x;
+            float errorY = (otherPos.y - myPos.y) - cell;
+            float errorX = otherPos.x - myPos.x;
             offset = new Vector2(errorX, errorY);
         }
-        // BOTTOM
         else if (other == piece.bottom)
         {
-            float errorY = (myRect.anchoredPosition.y - otherRect.anchoredPosition.y) - cell;
-            float errorX = otherRect.anchoredPosition.x - myRect.anchoredPosition.x;
+            float errorY = (myPos.y - otherPos.y) - cell;
+            float errorX = otherPos.x - myPos.x;
             offset = new Vector2(errorX, -errorY);
         }
 
-        Debug.Log($"OFFSET APPLIED: {offset}");
-
-        // APPLY TO WHOLE GROUP
+        // Move the entire moving group to snap exactly
         foreach (var p in piece.group.pieces)
         {
             RectTransform r = p.GetComponent<RectTransform>();
@@ -350,16 +238,54 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
 
         piece.group.Merge(other.group);
+        Debug.Log("🔗 Merged with neighbour!");
     }
 
-    void ResetMerge()
+    // ──────────────────────────
+    // SNAP TO CORRECT GRID POSITION
+    // ──────────────────────────
+    IEnumerator SmoothSnap()
     {
-        isMerging = false;
+        Vector2 myCurrent = rectTransform.anchoredPosition;
+        Vector2 myTarget = correctPosition;
+        Vector2 groupDelta = myTarget - myCurrent;
+
+        float t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime * 10f;
+            Vector2 step = Vector2.Lerp(Vector2.zero, groupDelta, t) - (rectTransform.anchoredPosition - myCurrent);
+            if (piece.group.pieces.Count > 1)
+                piece.group.Move(step);
+            else
+                rectTransform.anchoredPosition += step;
+            yield return null;
+        }
+
+        if (piece.group.pieces.Count > 1)
+        {
+            Vector2 finalCorrection = myTarget - rectTransform.anchoredPosition;
+            piece.group.Move(finalCorrection);
+        }
+        else
+        {
+            rectTransform.anchoredPosition = myTarget;
+        }
+
+        isPlaced = true;
+        PuzzleManager.Instance?.OnPiecePlaced(this);
     }
 
-    public void ResetPiece()
+
+    // ──────────────────────────
+    // RESET TO DRAG‑START POSITIONS (FIXED)
+    // ──────────────────────────
+    
+
+   public void ResetPiece()
     {
         isPlaced = false;
         canvasGroup.blocksRaycasts = true;
     }
+
 }
