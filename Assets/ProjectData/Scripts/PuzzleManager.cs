@@ -247,7 +247,7 @@ public class PuzzleManager : MonoBehaviour
         totalPieces = prefabs.Length;
         spawnedPieces = new GameObject[prefabs.Length];
         initialPositions.Clear();
-        allPieces.Clear(); // Clear the list before spawning new pieces
+        allPieces.Clear();
 
         for (int i = 0; i < prefabs.Length; i++)
         {
@@ -256,15 +256,13 @@ public class PuzzleManager : MonoBehaviour
             RectTransform rect = obj.GetComponent<RectTransform>();
             initialPositions.Add(rect.anchoredPosition);
 
-            // Setup stencil
             PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
             if (piece != null) 
             {
                 piece.Setup(i);
-                allPieces.Add(piece); // ADD TO LIST FOR MERGE SYSTEM
+                allPieces.Add(piece);
             }
 
-            // Setup drag
             DragPiece drag = obj.GetComponent<DragPiece>();
             if (drag != null)
             {
@@ -276,7 +274,15 @@ public class PuzzleManager : MonoBehaviour
             spawnedPieces[i] = obj;
         }
         
-        // Assign neighbor relationships after all pieces are spawned
+        // 🔥 AUTO-DETECT ACTUAL CELL SIZE FROM FIRST TWO PIECES
+        if (spawnedPieces.Length >= 2)
+        {
+            Vector2 pos0 = spawnedPieces[0].GetComponent<RectTransform>().anchoredPosition;
+            Vector2 pos1 = spawnedPieces[1].GetComponent<RectTransform>().anchoredPosition;
+            cellSize = Mathf.Abs(pos1.x - pos0.x);
+            Debug.Log($"🟢 DETECTED CELL SIZE: {cellSize} (was set to 100, now using actual layout spacing)");
+        }
+        
         AssignNeighbors();
     }
 

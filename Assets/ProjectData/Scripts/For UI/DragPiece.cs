@@ -26,6 +26,7 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     // Cooldown to avoid double‑merge in one frame
     private float mergeCooldown = 0.1f;
     private float lastMergeTime = -1f;
+    public float jigsawTabOverlap = 10f;  
 
     // 👇 NEW: stores the start position of every piece in the group when drag begins
     private Dictionary<PuzzlePiece, Vector2> groupStartPositions = new Dictionary<PuzzlePiece, Vector2>();
@@ -128,7 +129,28 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             if (other == piece) continue;
             if (other.group == piece.group) continue;
 
-            if (IsNeighbor(other) && IsCorrectMatch(other) && IsEdgeMatch(other))
+            // 🔥 Only check pieces that are physically close on screen
+            float physicalDistance = Vector2.Distance(
+                piece.GetComponent<RectTransform>().anchoredPosition,
+                other.GetComponent<RectTransform>().anchoredPosition
+            );
+            
+            // Skip if pieces are too far apart (more than 2x cell size)
+            float maxMergeDistance = PuzzleManager.Instance.cellSize * 2.5f;
+            if (physicalDistance > maxMergeDistance)
+                continue;
+
+            bool neighbor = IsNeighbor(other);
+            bool correctMatch = IsCorrectMatch(other);
+            bool edgeMatch = false;
+            
+            if (neighbor && correctMatch)
+            {
+                edgeMatch = IsEdgeMatch(other);
+                Debug.Log($"🧩 {gameObject.name} ↔ {other.name}: neighbor={neighbor}, correct={correctMatch}, edgeMatch={edgeMatch}, physicalDist={physicalDistance:F1}");
+            }
+
+            if (neighbor && correctMatch && edgeMatch)
             {
                 lastMergeTime = Time.time;
                 SnapExactlyAndMerge(other);
@@ -158,135 +180,134 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
         RectTransform otherRect = other.GetComponent<RectTransform>();
+        
         Vector2 myPos = myRect.anchoredPosition;
         Vector2 otherPos = otherRect.anchoredPosition;
-        float cell = PuzzleManager.Instance.cellSize;
-        float snapDistance = 35f;
-        float alignTolerance = 25f;
-
-        if (other == piece.right)
-        {
-            float gap = (otherPos.x - myPos.x) - cell;
-            float align = Mathf.Abs(otherPos.y - myPos.y);
-            return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
-        }
-        if (other == piece.left)
-        {
-            float gap = (myPos.x - otherPos.x) - cell;
-            float align = Mathf.Abs(otherPos.y - myPos.y);
-            return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
-        }
-        if (other == piece.top)
-        {
-            float gap = (otherPos.y - myPos.y) - cell;
-            float align = Mathf.Abs(otherPos.x - myPos.x);
-            return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
-        }
-        if (other == piece.bottom)
-        {
-            float gap = (myPos.y - otherPos.y) - cell;
-            float align = Mathf.Abs(otherPos.x - myPos.x);
-            return Mathf.Abs(gap) <= snapDistance && align <= alignTolerance;
-        }
-        return false;
+        
+        float snapDistance = 50f;
+        float dist = Vector2.Distance(myPos, otherPos);
+        
+        // Only consider pieces that are within reasonable range
+        // One piece-width distance maximum
+        float maxDist = Mathf.Max(myRect.rect.width, myRect.rect.height) * 1.5f;
+        
+        Debug.Log($"🧩 {gameObject.name} ↔ {other.name}: dist={dist:F1}, maxDist={maxDist:F1}");
+        
+        return dist <= maxDist && dist >= 20f; // Not overlapping, but close
     }
 
-    private void SnapExactlyAndMerge(PuzzlePiece other)
+   private void SnapExactlyAndMerge(PuzzlePiece other)
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
         RectTransform otherRect = other.GetComponent<RectTransform>();
-        float cell = PuzzleManager.Instance.cellSize;
+        
         Vector2 myPos = myRect.anchoredPosition;
         Vector2 otherPos = otherRect.anchoredPosition;
-        Vector2 offset = Vector2.zero;
-
-        if (other == piece.right)
-        {
-            float errorX = (otherPos.x - myPos.x) - cell;
-            float errorY = otherPos.y - myPos.y;
-            offset = new Vector2(errorX, errorY);
-        }
-        else if (other == piece.left)
-        {
-            float errorX = (myPos.x - otherPos.x) - cell;
-            float errorY = otherPos.y - myPos.y;
-            offset = new Vector2(-errorX, errorY);
-        }
-        else if (other == piece.top)
-        {
-            float errorY = (otherPos.y - myPos.y) - cell;
-            float errorX = otherPos.x - myPos.x;
-            offset = new Vector2(errorX, errorY);
-        }
-        else if (other == piece.bottom)
-        {
-            float errorY = (myPos.y - otherPos.y) - cell;
-            float errorX = otherPos.x - myPos.x;
-            offset = new Vector2(errorX, -errorY);
-        }
-
-        // Move the entire moving group to snap exactly
+        
+        // 🔥 Instead of calculating offset, directly snap the moving group
+        // so that the two connecting pieces are at the correct relative positions
+        
+        DragPiece myDrag = piece.GetComponent<DragPiece>();
+        DragPiece otherDrag = other.GetComponent<DragPiece>();
+        
+        // Get the exact grid offset from the original correct positions
+        Vector2 gridOffset = otherDrag.correctPosition - myDrag.correctPosition;
+        
+        // Move the dragged piece so the other piece is at: draggedPiecePos + gridOffset
+        Vector2 targetOtherPos = myPos + gridOffset;
+        Vector2 offset = targetOtherPos - otherPos;
+        
+        // 🔥 Apply to ALL pieces in the moving group (the group being dragged)
         foreach (var p in piece.group.pieces)
         {
             RectTransform r = p.GetComponent<RectTransform>();
             r.SetParent(PuzzleManager.Instance.pieceParent, true);
             r.anchoredPosition += offset;
-            r.anchoredPosition = new Vector2(
-                Mathf.Round(r.anchoredPosition.x),
-                Mathf.Round(r.anchoredPosition.y)
-            );
         }
-
+        
+        // 🔥 After moving, verify and snap to exact grid positions
+        foreach (var p in piece.group.pieces)
+        {
+            RectTransform r = p.GetComponent<RectTransform>();
+            DragPiece drag = p.GetComponent<DragPiece>();
+            
+            // Calculate where this piece should be relative to the other piece's current position
+            Vector2 relativeToOther = drag.correctPosition - otherDrag.correctPosition;
+            Vector2 exactPos = otherRect.anchoredPosition + relativeToOther;
+            
+            r.anchoredPosition = exactPos;
+        }
+        
         piece.group.Merge(other.group);
-        Debug.Log("🔗 Merged with neighbour!");
+        Debug.Log($"🔗 Merged! Grid-based alignment applied to {piece.group.pieces.Count} pieces");
     }
 
     // ──────────────────────────
     // SNAP TO CORRECT GRID POSITION
     // ──────────────────────────
     IEnumerator SmoothSnap()
+{
+    // 🔥 Instead of moving by one delta, move each piece to its own correct position
+    Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
+    Dictionary<PuzzlePiece, Vector2> targetPositions = new Dictionary<PuzzlePiece, Vector2>();
+    
+    foreach (var p in piece.group.pieces)
     {
-        Vector2 myCurrent = rectTransform.anchoredPosition;
-        Vector2 myTarget = correctPosition;
-        Vector2 groupDelta = myTarget - myCurrent;
-
-        float t = 0f;
-        while (t < 1f)
+        DragPiece drag = p.GetComponent<DragPiece>();
+        if (drag != null)
         {
-            t += Time.deltaTime * 10f;
-            Vector2 step = Vector2.Lerp(Vector2.zero, groupDelta, t) - (rectTransform.anchoredPosition - myCurrent);
-            if (piece.group.pieces.Count > 1)
-                piece.group.Move(step);
-            else
-                rectTransform.anchoredPosition += step;
-            yield return null;
+            RectTransform r = p.GetComponent<RectTransform>();
+            startPositions[p] = r.anchoredPosition;
+            targetPositions[p] = drag.correctPosition;
         }
-
-        if (piece.group.pieces.Count > 1)
+    }
+    
+    float t = 0f;
+    while (t < 1f)
+    {
+        t += Time.deltaTime * 8f;
+        float progress = t * t * (3f - 2f * t); // Smooth step
+        
+        foreach (var kv in startPositions)
         {
-            Vector2 finalCorrection = myTarget - rectTransform.anchoredPosition;
-            piece.group.Move(finalCorrection);
-        }
-        else
-        {
-            rectTransform.anchoredPosition = myTarget;
-        }
-
-        // 🔥 FIX: Mark ALL pieces in the group as placed
-        foreach (var p in piece.group.pieces)
-        {
-            DragPiece drag = p.GetComponent<DragPiece>();
-            if (drag != null)
+            PuzzlePiece p = kv.Key;
+            RectTransform r = p.GetComponent<RectTransform>();
+            if (r != null)
             {
-                drag.isPlaced = true;
-                drag.canDrag = false;
+                r.anchoredPosition = Vector2.Lerp(kv.Value, targetPositions[p], progress);
             }
         }
-
-        // Notify manager (only once, not per piece)
-        if (PuzzleManager.Instance != null)
-            PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
+        yield return null;
     }
+    
+    // Final exact positions
+    foreach (var kv in targetPositions)
+    {
+        PuzzlePiece p = kv.Key;
+        RectTransform r = p.GetComponent<RectTransform>();
+        if (r != null)
+        {
+            r.anchoredPosition = kv.Value;
+        }
+    }
+    
+    // Mark ALL pieces as placed
+    foreach (var p in piece.group.pieces)
+    {
+        DragPiece drag = p.GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.isPlaced = true;
+            drag.canDrag = false;
+        }
+    }
+    
+    // Notify manager
+    if (PuzzleManager.Instance != null)
+        PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
+    
+    Debug.Log($"✅ Group snapped: {piece.group.pieces.Count} pieces to their correct positions");
+}
  
 
     // ──────────────────────────
