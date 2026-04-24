@@ -65,6 +65,8 @@ public class PuzzleManager : MonoBehaviour
     Vector2 buttonsStartPos, buttonsTargetPos;
 
     private Transform originalPuzzleParent;
+    // Add this at the top with other private variables:
+    private HashSet<PuzzlePiece> placedPiecesSet = new HashSet<PuzzlePiece>();
 
     // --------------------------------------------------
     void Awake()
@@ -90,7 +92,9 @@ public class PuzzleManager : MonoBehaviour
         puzzleImage.SetParent(originalPuzzleParent, false);
         puzzleImage.localScale = Vector3.one;
         puzzleImage.localRotation = Quaternion.identity;
+        puzzleImage.anchoredPosition = Vector2.zero; 
         placedCount = 0;
+        placedPiecesSet.Clear();
         overflowIndex = 0;
         completePanel.SetActive(false);
 
@@ -123,8 +127,21 @@ public class PuzzleManager : MonoBehaviour
 
     public void OnGroupPlaced(List<PuzzlePiece> placedPieces)
     {
-        placedCount += placedPieces.Count;
-
+        int newlyPlaced = 0;
+        
+        foreach (var p in placedPieces)
+        {
+            if (!placedPiecesSet.Contains(p))
+            {
+                placedPiecesSet.Add(p);
+                newlyPlaced++;
+            }
+        }
+        
+        placedCount += newlyPlaced;
+        
+        Debug.Log($"📊 Placed: {placedCount}/{totalPieces} (newly placed: {newlyPlaced})");
+        
         if (placedCount >= totalPieces)
             OnPuzzleComplete();
     }
@@ -357,18 +374,17 @@ public class PuzzleManager : MonoBehaviour
         PuzzlePiece puzzlePiece = piece.GetComponent<PuzzlePiece>();
         if (puzzlePiece != null)
         {
-            // Create a fresh independent group for this piece
-            PuzzleGroup newGroup = new PuzzleGroup();
-            
-            // Remove from old group if it exists
+            // 🔥 STEP 4: Completely detach from any existing group
             if (puzzlePiece.group != null)
             {
                 puzzlePiece.group.pieces.Remove(puzzlePiece);
             }
             
-            // Assign new independent group
-            puzzlePiece.group = newGroup;
-            newGroup.AddPiece(puzzlePiece);
+            // Create a brand new independent group
+            puzzlePiece.group = new PuzzleGroup();
+            puzzlePiece.group.AddPiece(puzzlePiece);
+            
+            Debug.Log($"🔄 {piece.name} reset to independent group in bottom tray");
         }
 
         int slot = GetEmptySlot();
@@ -448,13 +464,19 @@ public class PuzzleManager : MonoBehaviour
     }
 
     // --------------------------------------------------
-    public void OnPiecePlaced(DragPiece piece)
+   public void OnPiecePlaced(DragPiece piece)
     {
-        placedCount++;
-
-        // 🔥 VERY IMPORTANT
+        PuzzlePiece p = piece.GetComponent<PuzzlePiece>();
+        if (p != null && !placedPiecesSet.Contains(p))
+        {
+            placedPiecesSet.Add(p);
+            placedCount++;
+        }
+        
         RemoveFromBottom(piece.gameObject);
-
+        
+        Debug.Log($"📊 Placed: {placedCount}/{totalPieces}");
+        
         if (placedCount >= totalPieces)
             OnPuzzleComplete();
     }
@@ -535,14 +557,20 @@ public class PuzzleManager : MonoBehaviour
     
     void SetupUI()
     {
-        bannerTargetPos = banner.anchoredPosition;
-        buttonsTargetPos = buttonsParent.anchoredPosition;
-
-        // ❗ ALWAYS SET (not +=)
-        banner.anchoredPosition = bannerTargetPos + Vector2.up * 500;
-        buttonsParent.anchoredPosition = buttonsTargetPos - Vector2.up * 500;
+    // Store the ORIGINAL positions ONCE
+    if (bannerStartPos == Vector2.zero)
+    {
+        bannerStartPos = banner.anchoredPosition;
+        buttonsStartPos = buttonsParent.anchoredPosition;
     }
 
+    bannerTargetPos = bannerStartPos;
+    buttonsTargetPos = buttonsStartPos;
+
+    // Set initial off-screen positions
+    banner.anchoredPosition = bannerStartPos + Vector2.up * 500;
+    buttonsParent.anchoredPosition = buttonsStartPos - Vector2.up * 500;
+    }
     void PlayEffects()
     {
         glow.DOScale(1.1f, 1.2f).SetLoops(-1, LoopType.Yoyo);
@@ -601,31 +629,39 @@ public class PuzzleManager : MonoBehaviour
 
     void ResetCompletePanel()
     {
-        // 🔥 Kill all tweens related to this UI
-        banner.DOKill();
-        buttonsParent.DOKill();
-        puzzleImage.DOKill();
-        glow.DOKill();
-        stars.DOKill();
+    // Kill all tweens
+    banner.DOKill();
+    buttonsParent.DOKill();
+    puzzleImage.DOKill();
+    glow.DOKill();
+    stars.DOKill();
 
-        // 🔥 Reset positions (VERY IMPORTANT)
-        banner.anchoredPosition = bannerTargetPos + Vector2.up * 500;
-        buttonsParent.anchoredPosition = buttonsTargetPos - Vector2.up * 500;
+    // Reset to OFF-SCREEN positions (matching SetupUI)
+    banner.anchoredPosition = bannerStartPos + Vector2.up * 500;
+    buttonsParent.anchoredPosition = buttonsStartPos - Vector2.up * 500;
 
-        // 🔥 Reset puzzle
-        puzzleImage.localScale = Vector3.one;
-        puzzleImage.localRotation = Quaternion.identity;
+    // Reset puzzle
+    puzzleImage.localScale = Vector3.one;
+    puzzleImage.localRotation = Quaternion.identity;
 
-        // 🔥 Reset buttons scale
-        for (int i = 0; i < buttonsParent.childCount; i++)
-        {
-            RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
+    // Reset puzzle parent back to original
+    puzzleImage.SetParent(originalPuzzleParent, false);
+    puzzleImage.anchoredPosition = Vector2.zero;
+
+    // Reset buttons scale
+    for (int i = 0; i < buttonsParent.childCount; i++)
+    {
+        RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
+        if (btn != null)
             btn.localScale = Vector3.zero;
-        }
+    }
 
-        // 🔥 Reset effects
-        glow.localScale = Vector3.one;
-        stars.localRotation = Quaternion.identity;
+    // Reset effects
+    glow.localScale = Vector3.one;
+    stars.localRotation = Quaternion.identity;
+
+    // Hide the panel
+    completePanel.SetActive(false);
     }
 }
 

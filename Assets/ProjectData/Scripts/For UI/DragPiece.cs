@@ -59,7 +59,18 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         Vector2 delta = eventData.delta / canvas.scaleFactor;
 
         if (piece.group != null && piece.group.pieces.Count > 1)
+        {
+            // 🔥 DEBUG: Only log once per drag (not every frame)
+            if (Input.GetMouseButtonDown(0))
+            {
+                Debug.Log($"🔍 [{gameObject.name}] Group has {piece.group.pieces.Count} pieces:");
+                foreach (var p in piece.group.pieces)
+                {
+                    Debug.Log($"    → {p.name} (group={p.group.GetHashCode()}, parent={p.transform.parent?.name})");
+                }
+            }
             piece.group.Move(delta);
+        }
         else
             rectTransform.anchoredPosition += delta;
 
@@ -192,28 +203,20 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         return dist <= maxDist && dist >= 20f; // Not overlapping, but close
     }
 
-   private void SnapExactlyAndMerge(PuzzlePiece other)
+    private void SnapExactlyAndMerge(PuzzlePiece other)
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
         RectTransform otherRect = other.GetComponent<RectTransform>();
         
-        Vector2 myPos = myRect.anchoredPosition;
-        Vector2 otherPos = otherRect.anchoredPosition;
-        
-        // 🔥 Instead of calculating offset, directly snap the moving group
-        // so that the two connecting pieces are at the correct relative positions
-        
         DragPiece myDrag = piece.GetComponent<DragPiece>();
         DragPiece otherDrag = other.GetComponent<DragPiece>();
         
-        // Get the exact grid offset from the original correct positions
-        Vector2 gridOffset = otherDrag.correctPosition - myDrag.correctPosition;
+        // Calculate where the dragged piece SHOULD be relative to the target piece
+        Vector2 correctOffset = myDrag.correctPosition - otherDrag.correctPosition;
+        Vector2 targetMyPos = otherRect.anchoredPosition + correctOffset;
+        Vector2 offset = targetMyPos - myRect.anchoredPosition;
         
-        // Move the dragged piece so the other piece is at: draggedPiecePos + gridOffset
-        Vector2 targetOtherPos = myPos + gridOffset;
-        Vector2 offset = targetOtherPos - otherPos;
-        
-        // 🔥 Apply to ALL pieces in the moving group (the group being dragged)
+        // 🔥 Move ALL pieces in the dragged group by the same offset
         foreach (var p in piece.group.pieces)
         {
             RectTransform r = p.GetComponent<RectTransform>();
@@ -221,21 +224,30 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             r.anchoredPosition += offset;
         }
         
-        // 🔥 After moving, verify and snap to exact grid positions
-        foreach (var p in piece.group.pieces)
+        // 🔥 DO NOT re-calculate individual positions — just merge the groups
+        // Only merge if the other piece is in the puzzle area
+        if (other.GetComponent<RectTransform>().parent == PuzzleManager.Instance.pieceParent)
         {
-            RectTransform r = p.GetComponent<RectTransform>();
-            DragPiece drag = p.GetComponent<DragPiece>();
+            // 🔥 MERGE THE ENTIRE GROUPS, not just single pieces
+            PuzzleGroup otherGroup = other.group;
+            PuzzleGroup myGroup = piece.group;
             
-            // Calculate where this piece should be relative to the other piece's current position
-            Vector2 relativeToOther = drag.correctPosition - otherDrag.correctPosition;
-            Vector2 exactPos = otherRect.anchoredPosition + relativeToOther;
+            if (otherGroup != null && otherGroup != myGroup)
+            {
+                // Merge all pieces from other's group into our group
+                myGroup.Merge(otherGroup);
+            }
             
-            r.anchoredPosition = exactPos;
+            // Remove from bottom tray
+            if (PuzzleManager.Instance != null)
+                PuzzleManager.Instance.RemoveFromBottom(other.gameObject);
+            
+            Debug.Log($"🔗 Merged! Group now has {myGroup.pieces.Count} pieces. Offset: {offset}");
         }
-        
-        piece.group.Merge(other.group);
-        Debug.Log($"🔗 Merged! Grid-based alignment applied to {piece.group.pieces.Count} pieces");
+        else
+        {
+            Debug.Log($"⚠️ Skipped merge - {other.name} is not in puzzle area");
+        }
     }
 
     // ──────────────────────────

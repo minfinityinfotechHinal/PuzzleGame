@@ -9,19 +9,28 @@ public class PuzzleGroup
     {
         if (!pieces.Contains(piece))
         {
+            if (piece.group != null && piece.group != this)
+            {
+                piece.group.pieces.Remove(piece);  // Remove from old group
+            }
             pieces.Add(piece);
-            piece.group = this;
+            piece.group = this;  // Point to new group
         }
     }
-
     public void Merge(PuzzleGroup other)
     {
         if (other == this) return;
 
-        foreach (var p in other.pieces)
+        // Copy the pieces before modifying
+        List<PuzzlePiece> piecesToAdd = new List<PuzzlePiece>(other.pieces);
+        
+        foreach (var p in piecesToAdd)
         {
             AddPiece(p);
         }
+        
+        // 🔥 Clear the old group so no pieces are left behind
+        other.pieces.Clear();
     }
 
     public void Move(Vector2 delta)
