@@ -56,6 +56,12 @@ MonoBehaviour:
   maskImage: {fileID: 3196466885016159731}
   contentImage: {fileID: 6656516143689987853}
   shadowImage: {fileID: 1986320918068233313}
+  row: 0
+  col: 0
+  left: {fileID: 0}
+  right: {fileID: 0}
+  top: {fileID: 0}
+  bottom: {fileID: 0}
 --- !u!114 &-5264862101510412014
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -69,12 +75,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DragPiece
   isPlaced: 0
-  snapThreshold: 120
+  snapThreshold: 50
   canDrag: 0
   dragArea: {fileID: 0}
   correctPosition: {x: 0, y: 0}
   ghostImage: {fileID: 0}
   particleObject: {fileID: 2238449015111753799}
+  jigsawTabOverlap: 10
 --- !u!1 &1118915752285845750
 GameObject:
   m_ObjectHideFlags: 0

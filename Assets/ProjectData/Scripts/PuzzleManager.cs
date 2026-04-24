@@ -352,6 +352,24 @@ public class PuzzleManager : MonoBehaviour
     {
         RectTransform rect = piece.GetComponent<RectTransform>();
         rect.SetParent(bottomParent, true);
+        
+        // 🔥 FIX: Reset each piece to its own independent group when it goes to bottom tray
+        PuzzlePiece puzzlePiece = piece.GetComponent<PuzzlePiece>();
+        if (puzzlePiece != null)
+        {
+            // Create a fresh independent group for this piece
+            PuzzleGroup newGroup = new PuzzleGroup();
+            
+            // Remove from old group if it exists
+            if (puzzlePiece.group != null)
+            {
+                puzzlePiece.group.pieces.Remove(puzzlePiece);
+            }
+            
+            // Assign new independent group
+            puzzlePiece.group = newGroup;
+            newGroup.AddPiece(puzzlePiece);
+        }
 
         int slot = GetEmptySlot();
 

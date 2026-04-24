@@ -13,7 +13,7 @@ public class PuzzleGroup
             piece.group = this;
         }
     }
-    
+
     public void Merge(PuzzleGroup other)
     {
         if (other == this) return;
@@ -31,8 +31,13 @@ public class PuzzleGroup
             if (p != null)
             {
                 RectTransform rect = p.GetComponent<RectTransform>();
-                if (rect != null)
+                DragPiece drag = p.GetComponent<DragPiece>();
+                
+                // 🔥 Only move pieces in the puzzle area, not in bottom tray
+                if (rect != null && drag != null && !drag.isPlaced && rect.parent == PuzzleManager.Instance.pieceParent)
+                {
                     rect.anchoredPosition += delta;
+                }
             }
         }
     }

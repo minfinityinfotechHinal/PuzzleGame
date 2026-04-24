@@ -26,10 +26,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     // Cooldown to avoid double‑merge in one frame
     private float mergeCooldown = 0.1f;
     private float lastMergeTime = -1f;
-    public float jigsawTabOverlap = 10f;  
-
-    // 👇 NEW: stores the start position of every piece in the group when drag begins
-    private Dictionary<PuzzlePiece, Vector2> groupStartPositions = new Dictionary<PuzzlePiece, Vector2>();
 
     private void Awake()
     {
@@ -247,16 +243,17 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     // ──────────────────────────
     IEnumerator SmoothSnap()
 {
-    // 🔥 Instead of moving by one delta, move each piece to its own correct position
     Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
     Dictionary<PuzzlePiece, Vector2> targetPositions = new Dictionary<PuzzlePiece, Vector2>();
     
     foreach (var p in piece.group.pieces)
     {
         DragPiece drag = p.GetComponent<DragPiece>();
-        if (drag != null)
+        RectTransform r = p.GetComponent<RectTransform>();
+        
+        // 🔥 ONLY include pieces that are in the puzzle area (not in bottom tray)
+        if (drag != null && r != null && !drag.isPlaced && r.parent == PuzzleManager.Instance.pieceParent)
         {
-            RectTransform r = p.GetComponent<RectTransform>();
             startPositions[p] = r.anchoredPosition;
             targetPositions[p] = drag.correctPosition;
         }
@@ -266,7 +263,7 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     while (t < 1f)
     {
         t += Time.deltaTime * 8f;
-        float progress = t * t * (3f - 2f * t); // Smooth step
+        float progress = t * t * (3f - 2f * t);
         
         foreach (var kv in startPositions)
         {
@@ -280,7 +277,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         yield return null;
     }
     
-    // Final exact positions
     foreach (var kv in targetPositions)
     {
         PuzzlePiece p = kv.Key;
@@ -291,18 +287,16 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
     }
     
-    // Mark ALL pieces as placed
     foreach (var p in piece.group.pieces)
     {
         DragPiece drag = p.GetComponent<DragPiece>();
-        if (drag != null)
+        if (drag != null && drag.GetComponent<RectTransform>().parent == PuzzleManager.Instance.pieceParent)
         {
             drag.isPlaced = true;
             drag.canDrag = false;
         }
     }
     
-    // Notify manager
     if (PuzzleManager.Instance != null)
         PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
     
