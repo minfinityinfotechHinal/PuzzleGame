@@ -272,10 +272,22 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             rectTransform.anchoredPosition = myTarget;
         }
 
-        isPlaced = true;
-        PuzzleManager.Instance?.OnPiecePlaced(this);
-    }
+        // 🔥 FIX: Mark ALL pieces in the group as placed
+        foreach (var p in piece.group.pieces)
+        {
+            DragPiece drag = p.GetComponent<DragPiece>();
+            if (drag != null)
+            {
+                drag.isPlaced = true;
+                drag.canDrag = false;
+            }
+        }
 
+        // Notify manager (only once, not per piece)
+        if (PuzzleManager.Instance != null)
+            PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
+    }
+ 
 
     // ──────────────────────────
     // RESET TO DRAG‑START POSITIONS (FIXED)

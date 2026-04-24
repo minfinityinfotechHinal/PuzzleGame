@@ -13,7 +13,7 @@ public class PuzzleGroup
             piece.group = this;
         }
     }
-
+    
     public void Merge(PuzzleGroup other)
     {
         if (other == this) return;

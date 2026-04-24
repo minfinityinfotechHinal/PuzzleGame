@@ -121,6 +121,14 @@ public class PuzzleManager : MonoBehaviour
         InitLevel();
     }
 
+    public void OnGroupPlaced(List<PuzzlePiece> placedPieces)
+    {
+        placedCount += placedPieces.Count;
+
+        if (placedCount >= totalPieces)
+            OnPuzzleComplete();
+    }
+
     void InitLevel()
     {
         SpawnPieces();
