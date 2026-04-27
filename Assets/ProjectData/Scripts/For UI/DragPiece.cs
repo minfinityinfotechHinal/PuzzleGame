@@ -38,7 +38,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         if (particleObject != null) particleObject.SetActive(false);
     }
 
-
     public void OnBeginDrag(PointerEventData eventData)
     {
         if (isPlaced || !canDrag) return;
@@ -104,7 +103,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
     }
 
-
     public void OnEndDrag(PointerEventData eventData)
     {
         if (isPlaced || !canDrag) return;
@@ -166,6 +164,26 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
     }
 
+    public void CheckCompletion()
+    {
+        int placedCount = 0;
+        foreach (var piece in PuzzleManager.Instance.allPieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null && drag.isPlaced)
+            {
+                placedCount++;
+            }
+        }
+        
+        Debug.Log($"🔍 Manual check: {placedCount}/{PuzzleManager.Instance.TotalPieces} pieces placed");
+        
+        if (placedCount >= PuzzleManager.Instance.TotalPieces)
+        {
+            PuzzleManager.Instance.ShowCompletionCanvas();
+        }
+    }
+
     private bool IsNeighbor(PuzzlePiece other)
     {
         return other == piece.left ||
@@ -191,7 +209,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         Vector2 myPos = myRect.anchoredPosition;
         Vector2 otherPos = otherRect.anchoredPosition;
         
-        float snapDistance = 50f;
         float dist = Vector2.Distance(myPos, otherPos);
         
         // Only consider pieces that are within reasonable range
@@ -254,77 +271,74 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     // SNAP TO CORRECT GRID POSITION
     // ──────────────────────────
     IEnumerator SmoothSnap()
-{
-    Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
-    Dictionary<PuzzlePiece, Vector2> targetPositions = new Dictionary<PuzzlePiece, Vector2>();
-    
-    foreach (var p in piece.group.pieces)
     {
-        DragPiece drag = p.GetComponent<DragPiece>();
-        RectTransform r = p.GetComponent<RectTransform>();
+        Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
+        Dictionary<PuzzlePiece, Vector2> targetPositions = new Dictionary<PuzzlePiece, Vector2>();
         
-        // 🔥 ONLY include pieces that are in the puzzle area (not in bottom tray)
-        if (drag != null && r != null && !drag.isPlaced && r.parent == PuzzleManager.Instance.pieceParent)
+        foreach (var p in piece.group.pieces)
         {
-            startPositions[p] = r.anchoredPosition;
-            targetPositions[p] = drag.correctPosition;
+            DragPiece drag = p.GetComponent<DragPiece>();
+            RectTransform r = p.GetComponent<RectTransform>();
+            
+            // 🔥 ONLY include pieces that are in the puzzle area (not in bottom tray)
+            if (drag != null && r != null && !drag.isPlaced && r.parent == PuzzleManager.Instance.pieceParent)
+            {
+                startPositions[p] = r.anchoredPosition;
+                targetPositions[p] = drag.correctPosition;
+            }
         }
-    }
-    
-    float t = 0f;
-    while (t < 1f)
-    {
-        t += Time.deltaTime * 8f;
-        float progress = t * t * (3f - 2f * t);
         
-        foreach (var kv in startPositions)
+        float t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime * 8f;
+            float progress = t * t * (3f - 2f * t);
+            
+            foreach (var kv in startPositions)
+            {
+                PuzzlePiece p = kv.Key;
+                RectTransform r = p.GetComponent<RectTransform>();
+                if (r != null)
+                {
+                    r.anchoredPosition = Vector2.Lerp(kv.Value, targetPositions[p], progress);
+                }
+            }
+            yield return null;
+        }
+        
+        foreach (var kv in targetPositions)
         {
             PuzzlePiece p = kv.Key;
             RectTransform r = p.GetComponent<RectTransform>();
             if (r != null)
             {
-                r.anchoredPosition = Vector2.Lerp(kv.Value, targetPositions[p], progress);
+                r.anchoredPosition = kv.Value;
             }
         }
-        yield return null;
-    }
-    
-    foreach (var kv in targetPositions)
-    {
-        PuzzlePiece p = kv.Key;
-        RectTransform r = p.GetComponent<RectTransform>();
-        if (r != null)
+        
+        foreach (var p in piece.group.pieces)
         {
-            r.anchoredPosition = kv.Value;
+            DragPiece drag = p.GetComponent<DragPiece>();
+            if (drag != null && drag.GetComponent<RectTransform>().parent == PuzzleManager.Instance.pieceParent)
+            {
+                drag.isPlaced = true;
+                drag.canDrag = false;
+            }
         }
-    }
-    
-    foreach (var p in piece.group.pieces)
-    {
-        DragPiece drag = p.GetComponent<DragPiece>();
-        if (drag != null && drag.GetComponent<RectTransform>().parent == PuzzleManager.Instance.pieceParent)
+        
+        if (PuzzleManager.Instance != null)
         {
-            drag.isPlaced = true;
-            drag.canDrag = false;
+            PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
+            // Check completion after snapping
+            CheckCompletion();
         }
+        
+        Debug.Log($"✅ Group snapped: {piece.group.pieces.Count} pieces to their correct positions");
     }
-    
-    if (PuzzleManager.Instance != null)
-        PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
-    
-    Debug.Log($"✅ Group snapped: {piece.group.pieces.Count} pieces to their correct positions");
-}
- 
 
-    // ──────────────────────────
-    // RESET TO DRAG‑START POSITIONS (FIXED)
-    // ──────────────────────────
-    
-
-   public void ResetPiece()
+    public void ResetPiece()
     {
         isPlaced = false;
         canvasGroup.blocksRaycasts = true;
     }
-
 }

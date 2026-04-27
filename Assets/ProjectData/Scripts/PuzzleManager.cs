@@ -35,7 +35,7 @@ public class PuzzleManager : MonoBehaviour
 
     private int overflowIndex = 0;
     private int placedCount = 0;
-    private int totalPieces = 0;
+    public int totalPieces = 0; // Make this public for access from DragPiece
 
     [Header("Drag")]
     public RectTransform dragArea;
@@ -55,9 +55,12 @@ public class PuzzleManager : MonoBehaviour
     public RectTransform stars;
     public RectTransform completedPuzzleParent;
 
-    [Header("Merge System")] // ADD THIS SECTION
+    [Header("Merge System")]
     public List<PuzzlePiece> allPieces = new List<PuzzlePiece>();
     public float cellSize = 100f; // exact spacing between pieces
+
+    [Header("Completion")]
+    public GameObject completionCanvas; // Add reference to your completion canvas here
 
     private PuzzleSet currentSet;
 
@@ -65,8 +68,10 @@ public class PuzzleManager : MonoBehaviour
     Vector2 buttonsStartPos, buttonsTargetPos;
 
     private Transform originalPuzzleParent;
-    // Add this at the top with other private variables:
     private HashSet<PuzzlePiece> placedPiecesSet = new HashSet<PuzzlePiece>();
+
+    // Public property for totalPieces (alternative if you want to keep totalPieces private)
+    public int TotalPieces => totalPieces;
 
     // --------------------------------------------------
     void Awake()
@@ -75,20 +80,21 @@ public class PuzzleManager : MonoBehaviour
         else Destroy(gameObject);
     }
 
-    // ❌ DO NOTHING IN START (important for start screen)
     void Start()
     {
         originalPuzzleParent = puzzleImage.parent;
         slotPieces = new GameObject[maxVisible];
         completePanel.SetActive(false);
+        
+        // Initialize completion canvas if assigned
+        if (completionCanvas != null)
+            completionCanvas.SetActive(false);
     }
 
     // --------------------------------------------------
-    // ✅ MAIN ENTRY POINT
     public void StartLevel(int targetRows, int targetCols)
     {
         StopAllCoroutines();
-        // ✅ RESET PARENT BACK
         puzzleImage.SetParent(originalPuzzleParent, false);
         puzzleImage.localScale = Vector3.one;
         puzzleImage.localRotation = Quaternion.identity;
@@ -97,6 +103,9 @@ public class PuzzleManager : MonoBehaviour
         placedPiecesSet.Clear();
         overflowIndex = 0;
         completePanel.SetActive(false);
+        
+        if (completionCanvas != null)
+            completionCanvas.SetActive(false);
 
         ClearCurrentLevel();
 
@@ -181,7 +190,6 @@ public class PuzzleManager : MonoBehaviour
         FillFromOverflow();
     }
 
-    // Add this method to assign neighbor relationships after spawning
     void AssignNeighbors()
     {
         for (int i = 0; i < spawnedPieces.Length; i++)
@@ -195,19 +203,15 @@ public class PuzzleManager : MonoBehaviour
             piece.row = row;
             piece.col = col;
 
-            // LEFT
             if (col > 0)
                 piece.left = spawnedPieces[i - 1].GetComponent<PuzzlePiece>();
 
-            // RIGHT
             if (col < cols - 1)
                 piece.right = spawnedPieces[i + 1].GetComponent<PuzzlePiece>();
 
-            // TOP
             if (row > 0)
                 piece.top = spawnedPieces[i - cols].GetComponent<PuzzlePiece>();
 
-            // BOTTOM
             if (row < rows - 1)
                 piece.bottom = spawnedPieces[i + cols].GetComponent<PuzzlePiece>();
         }
@@ -256,7 +260,6 @@ public class PuzzleManager : MonoBehaviour
         yield return ScatterToBottom();
     }
 
-    // --------------------------------------------------
     void SpawnPieces()
     {
         GameObject[] prefabs = currentSet.prefabs;
@@ -291,19 +294,17 @@ public class PuzzleManager : MonoBehaviour
             spawnedPieces[i] = obj;
         }
         
-        // 🔥 AUTO-DETECT ACTUAL CELL SIZE FROM FIRST TWO PIECES
         if (spawnedPieces.Length >= 2)
         {
             Vector2 pos0 = spawnedPieces[0].GetComponent<RectTransform>().anchoredPosition;
             Vector2 pos1 = spawnedPieces[1].GetComponent<RectTransform>().anchoredPosition;
             cellSize = Mathf.Abs(pos1.x - pos0.x);
-            Debug.Log($"🟢 DETECTED CELL SIZE: {cellSize} (was set to 100, now using actual layout spacing)");
+            Debug.Log($"🟢 DETECTED CELL SIZE: {cellSize}");
         }
         
         AssignNeighbors();
     }
 
-    // --------------------------------------------------
     void GenerateSlots()
     {
         generatedSlots.Clear();
@@ -340,7 +341,6 @@ public class PuzzleManager : MonoBehaviour
         }
     }
 
-    // --------------------------------------------------
     IEnumerator ScatterToBottom()
     {
         yield return new WaitForSeconds(moveDelay);
@@ -364,23 +364,19 @@ public class PuzzleManager : MonoBehaviour
         }
     }
 
-    // --------------------------------------------------
     public void MoveToBottom(GameObject piece)
     {
         RectTransform rect = piece.GetComponent<RectTransform>();
         rect.SetParent(bottomParent, true);
         
-        // 🔥 FIX: Reset each piece to its own independent group when it goes to bottom tray
         PuzzlePiece puzzlePiece = piece.GetComponent<PuzzlePiece>();
         if (puzzlePiece != null)
         {
-            // 🔥 STEP 4: Completely detach from any existing group
             if (puzzlePiece.group != null)
             {
                 puzzlePiece.group.pieces.Remove(puzzlePiece);
             }
             
-            // Create a brand new independent group
             puzzlePiece.group = new PuzzleGroup();
             puzzlePiece.group.AddPiece(puzzlePiece);
             
@@ -401,7 +397,6 @@ public class PuzzleManager : MonoBehaviour
             StartCoroutine(MoveToOverflow(piece));
         }
     }
-    
 
     IEnumerator MoveToSlot(GameObject piece, int index)
     {
@@ -431,7 +426,6 @@ public class PuzzleManager : MonoBehaviour
 
         Vector2 start = rect.anchoredPosition;
 
-        // 👉 final hidden position (like before)
         float x = (maxVisible + overflowIndex) * spacing;
         Vector2 finalTarget = new Vector2(x, 0);
 
@@ -439,7 +433,6 @@ public class PuzzleManager : MonoBehaviour
 
         float t = 0f;
 
-        // 🔥 STEP 1: move to overflowTarget (visual exit)
         while (t < 1f)
         {
             t += Time.deltaTime * moveSpeed;
@@ -447,10 +440,7 @@ public class PuzzleManager : MonoBehaviour
             yield return null;
         }
 
-        // 🔥 STEP 2: snap to hidden slot (same as old)
         rect.anchoredPosition = finalTarget;
-
-        // 🔥 STEP 3: hide
         piece.SetActive(false);
     }
 
@@ -463,8 +453,7 @@ public class PuzzleManager : MonoBehaviour
         return -1;
     }
 
-    // --------------------------------------------------
-   public void OnPiecePlaced(DragPiece piece)
+    public void OnPiecePlaced(DragPiece piece)
     {
         PuzzlePiece p = piece.GetComponent<PuzzlePiece>();
         if (p != null && !placedPiecesSet.Contains(p))
@@ -481,14 +470,38 @@ public class PuzzleManager : MonoBehaviour
             OnPuzzleComplete();
     }
 
+    // ADD THIS METHOD FOR COMPLETION CHECK FROM DRAGPIECE
+    public void ShowCompletionCanvas()
+    {
+        Debug.Log("🎉 PUZZLE COMPLETE! Showing completion canvas.");
+        
+        if (completionCanvas != null)
+        {
+            completionCanvas.SetActive(true);
+        }
+        else
+        {
+            Debug.LogWarning("Completion canvas not assigned in PuzzleManager!");
+            // Fallback to completePanel if completionCanvas is not assigned
+            if (completePanel != null)
+                completePanel.SetActive(true);
+        }
+    }
+
     void OnPuzzleComplete()
     {
-        completePanel.SetActive(true);
-
-        SetupUI();              // ✅ FIRST set correct positions
-        ResetCompletePanel();   // ✅ THEN reset using correct values
-
-        PlayFullCompleteSequence();
+        // Show either completionCanvas or completePanel
+        if (completionCanvas != null)
+        {
+            completionCanvas.SetActive(true);
+        }
+        else if (completePanel != null)
+        {
+            completePanel.SetActive(true);
+            SetupUI();
+            ResetCompletePanel();
+            PlayFullCompleteSequence();
+        }
     }
 
     void PlayFullCompleteSequence()
@@ -497,28 +510,22 @@ public class PuzzleManager : MonoBehaviour
 
         rect.SetParent(completedPuzzleParent, false);
 
-        // ✅ Start slightly bigger (important!)
         rect.localScale = Vector3.one * 1.05f;
         rect.localRotation = Quaternion.identity;
 
         Sequence seq = DOTween.Sequence();
 
-        // 🔥 STEP 1: subtle shake ONLY (no scale up)
         seq.Append(rect.DOShakeRotation(0.3f, 3f));
 
-        // 🔥 STEP 2: smooth scale DOWN + rotate
         seq.Append(rect.DOScale(0.9f, 0.4f).SetEase(Ease.InOutQuad))
            .Join(rect.DORotate(new Vector3(0, 0, 2.5f), 0.4f)
            .SetEase(Ease.InOutSine));
 
-        // 🔥 optional micro settle (very premium feel)
         seq.Append(rect.DOScale(0.92f, 0.15f))
            .Append(rect.DOScale(0.9f, 0.1f));
 
-        // ⏳ pause
         seq.AppendInterval(0.15f);
 
-        // 🔥 UI after everything
         seq.AppendCallback(() => PlayCompleteUI());
     }
 
@@ -526,15 +533,12 @@ public class PuzzleManager : MonoBehaviour
     {
         Sequence seq = DOTween.Sequence();
 
-        // Banner first
         seq.Append(banner.DOAnchorPos(bannerTargetPos, 0.6f)
             .SetEase(Ease.OutBack));
 
-        // Buttons container
         seq.Append(buttonsParent.DOAnchorPos(buttonsTargetPos, 0.5f)
             .SetEase(Ease.OutBack));
 
-        // Prepare buttons
         List<RectTransform> buttons = new List<RectTransform>();
 
         for (int i = 0; i < buttonsParent.childCount; i++)
@@ -544,40 +548,36 @@ public class PuzzleManager : MonoBehaviour
             buttons.Add(btn);
         }
 
-        // Animate one by one
         foreach (var btn in buttons)
         {
             seq.Append(btn.DOScale(1f, 0.35f).SetEase(Ease.OutBack));
             seq.AppendInterval(0.08f);
         }
 
-        // Effects start at end
         seq.AppendCallback(() => PlayEffects());
     }
     
     void SetupUI()
     {
-    // Store the ORIGINAL positions ONCE
-    if (bannerStartPos == Vector2.zero)
-    {
-        bannerStartPos = banner.anchoredPosition;
-        buttonsStartPos = buttonsParent.anchoredPosition;
-    }
+        if (bannerStartPos == Vector2.zero)
+        {
+            bannerStartPos = banner.anchoredPosition;
+            buttonsStartPos = buttonsParent.anchoredPosition;
+        }
 
-    bannerTargetPos = bannerStartPos;
-    buttonsTargetPos = buttonsStartPos;
+        bannerTargetPos = bannerStartPos;
+        buttonsTargetPos = buttonsStartPos;
 
-    // Set initial off-screen positions
-    banner.anchoredPosition = bannerStartPos + Vector2.up * 500;
-    buttonsParent.anchoredPosition = buttonsStartPos - Vector2.up * 500;
+        banner.anchoredPosition = bannerStartPos + Vector2.up * 500;
+        buttonsParent.anchoredPosition = buttonsStartPos - Vector2.up * 500;
     }
+    
     void PlayEffects()
     {
         glow.DOScale(1.1f, 1.2f).SetLoops(-1, LoopType.Yoyo);
         stars.DORotate(new Vector3(0, 0, 5f), 2f).SetLoops(-1, LoopType.Yoyo);
     }
 
-    // --------------------------------------------------
     void ClearCurrentLevel()
     {
         if (spawnedPieces != null)
@@ -592,76 +592,64 @@ public class PuzzleManager : MonoBehaviour
         generatedSlots.Clear();
         bottomPieces.Clear();
         overflowQueue.Clear();
-        allPieces.Clear(); // Clear the allPieces list
+        allPieces.Clear();
     }
 
     public void HideCompletePanel(System.Action onComplete)
     {
         Sequence seq = DOTween.Sequence();
 
-        // 🔻 Move buttons down
         seq.Append(buttonsParent.DOAnchorPos(
             buttonsTargetPos - Vector2.up * 500, 0.4f)
             .SetEase(Ease.InBack));
 
-        // 🔻 Move banner up
         seq.Join(banner.DOAnchorPos(
             bannerTargetPos + Vector2.up * 500, 0.4f)
             .SetEase(Ease.InBack));
 
-        // 🔻 Scale down puzzle slightly (nice touch)
         seq.Join(puzzleImage.DOScale(0.85f, 0.3f));
 
-        // 🔻 Stop effects
         seq.AppendCallback(() =>
         {
             glow.DOKill();
             stars.DOKill();
         });
 
-        // 🔻 Finally disable panel
         seq.AppendCallback(() =>
         {
             completePanel.SetActive(false);
-            onComplete?.Invoke(); // 👉 continue flow
+            onComplete?.Invoke();
         });
     }
 
     void ResetCompletePanel()
     {
-    // Kill all tweens
-    banner.DOKill();
-    buttonsParent.DOKill();
-    puzzleImage.DOKill();
-    glow.DOKill();
-    stars.DOKill();
+        banner.DOKill();
+        buttonsParent.DOKill();
+        puzzleImage.DOKill();
+        glow.DOKill();
+        stars.DOKill();
 
-    // Reset to OFF-SCREEN positions (matching SetupUI)
-    banner.anchoredPosition = bannerStartPos + Vector2.up * 500;
-    buttonsParent.anchoredPosition = buttonsStartPos - Vector2.up * 500;
+        banner.anchoredPosition = bannerStartPos + Vector2.up * 500;
+        buttonsParent.anchoredPosition = buttonsStartPos - Vector2.up * 500;
 
-    // Reset puzzle
-    puzzleImage.localScale = Vector3.one;
-    puzzleImage.localRotation = Quaternion.identity;
+        puzzleImage.localScale = Vector3.one;
+        puzzleImage.localRotation = Quaternion.identity;
 
-    // Reset puzzle parent back to original
-    puzzleImage.SetParent(originalPuzzleParent, false);
-    puzzleImage.anchoredPosition = Vector2.zero;
+        puzzleImage.SetParent(originalPuzzleParent, false);
+        puzzleImage.anchoredPosition = Vector2.zero;
 
-    // Reset buttons scale
-    for (int i = 0; i < buttonsParent.childCount; i++)
-    {
-        RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
-        if (btn != null)
-            btn.localScale = Vector3.zero;
-    }
+        for (int i = 0; i < buttonsParent.childCount; i++)
+        {
+            RectTransform btn = buttonsParent.GetChild(i).GetComponent<RectTransform>();
+            if (btn != null)
+                btn.localScale = Vector3.zero;
+        }
 
-    // Reset effects
-    glow.localScale = Vector3.one;
-    stars.localRotation = Quaternion.identity;
+        glow.localScale = Vector3.one;
+        stars.localRotation = Quaternion.identity;
 
-    // Hide the panel
-    completePanel.SetActive(false);
+        completePanel.SetActive(false);
     }
 }
 
