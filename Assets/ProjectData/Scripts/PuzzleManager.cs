@@ -134,6 +134,63 @@ public class PuzzleManager : MonoBehaviour
         InitLevel();
     }
 
+    // Add this method to PuzzleManager class
+    // Add this public method to your PuzzleManager class
+    // Add this to PuzzleManager class - handles visible + overflow properly
+    public void UpdateSlotPiecesAfterShuffleWithOverflow(List<GameObject> visiblePieces, List<GameObject> hiddenPieces)
+    {
+        // Clear all slots
+        for (int i = 0; i < maxVisible; i++)
+        {
+            slotPieces[i] = null;
+        }
+        
+        // Assign visible pieces to first 6 slots
+        for (int i = 0; i < visiblePieces.Count && i < maxVisible; i++)
+        {
+            slotPieces[i] = visiblePieces[i];
+            
+            // Make sure they're active and draggable
+            visiblePieces[i].SetActive(true);
+            DragPiece drag = visiblePieces[i].GetComponent<DragPiece>();
+            if (drag != null)
+            {
+                drag.canDrag = true;
+            }
+        }
+        
+        // Clear and rebuild overflow queue with hidden pieces
+        overflowQueue.Clear();
+        foreach (var piece in hiddenPieces)
+        {
+            overflowQueue.Enqueue(piece);
+            
+            // Make sure hidden pieces are inactive
+            piece.SetActive(false);
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null)
+            {
+                drag.canDrag = false;
+            }
+        }
+        
+        // Update bottomPieces list with ALL pieces (maintains order)
+        bottomPieces.Clear();
+        foreach (var piece in visiblePieces)
+        {
+            bottomPieces.Add(piece);
+        }
+        foreach (var piece in hiddenPieces)
+        {
+            bottomPieces.Add(piece);
+        }
+        
+        // Reset overflow index
+        overflowIndex = hiddenPieces.Count;
+        
+        Debug.Log($"📋 Slots updated: {visiblePieces.Count} visible in slots, {hiddenPieces.Count} in overflow queue");
+    }
+
     public void OnGroupPlaced(List<PuzzlePiece> placedPieces)
     {
         int newlyPlaced = 0;
