@@ -303,7 +303,12 @@ public class PuzzleManager : MonoBehaviour
                 piece.bottom = spawnedPieces[i + cols].GetComponent<PuzzlePiece>();
         }
     }
-
+    // Add this public method so PowerUpButtons can call RearrangeBottom
+    public void RearrangeBottomPublic()
+    {
+        RearrangeBottom();
+        FillFromOverflow();
+    }
     void RearrangeBottom()
 {
     List<GameObject> valid = new List<GameObject>();

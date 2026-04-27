@@ -383,63 +383,131 @@ public class PowerUpButtons : MonoBehaviour
     private List<PuzzlePiece> GetIncorrectPieces()
     {
         List<PuzzlePiece> incorrectPieces = new List<PuzzlePiece>();
+
         foreach (var piece in PuzzleManager.Instance.allPieces)
         {
             DragPiece drag = piece.GetComponent<DragPiece>();
             RectTransform rect = piece.GetComponent<RectTransform>();
+
+            // Skip pieces that are null
             if (drag == null || rect == null) continue;
+            
+            // Skip pieces not in puzzle area (still in bottom panel)
             if (rect.parent != PuzzleManager.Instance.pieceParent) continue;
+            
+            // Skip pieces that are correctly placed (snapped)
             if (drag.isPlaced) continue;
 
+            // Check if piece is at its correct position
             float distance = Vector2.Distance(rect.anchoredPosition, drag.correctPosition);
-            if (distance > PuzzleManager.Instance.cellSize * 2f)
+            
+            // If piece is not within snap threshold, it's incorrect
+            // Use a smaller threshold to catch more incorrect pieces
+            if (distance > drag.snapThreshold * 0.5f)
+            {
                 incorrectPieces.Add(piece);
+                Debug.Log($"🗑️ Found incorrect piece: {piece.name}, distance: {distance:F1}, threshold: {drag.snapThreshold * 0.3f:F1}");
+            }
         }
+
+        Debug.Log($"🔍 Found {incorrectPieces.Count} incorrect pieces in puzzle area");
         return incorrectPieces;
     }
-
     private IEnumerator ErasePiecesCoroutine(List<PuzzlePiece> piecesToErase)
+{
+    isEraseActive = true;
+    int erasedCount = piecesToErase.Count;
+    int completedCount = 0;
+
+    // Start ALL animations at once
+    foreach (var piece in piecesToErase)
     {
-        isEraseActive = true;
-        int erasedCount = 0;
-
-        foreach (var piece in piecesToErase)
+        DragPiece drag = piece.GetComponent<DragPiece>();
+        RectTransform rect = piece.GetComponent<RectTransform>();
+        
+        if (drag == null || rect == null) 
         {
-            DragPiece drag = piece.GetComponent<DragPiece>();
-            RectTransform rect = piece.GetComponent<RectTransform>();
-            if (drag == null || rect == null) continue;
+            completedCount++;
+            continue;
+        }
+        if (drag.isPlaced) 
+        {
+            completedCount++;
+            continue;
+        }
 
-            if (piece.group != null && piece.group.pieces.Count > 1)
-            {
-                piece.group.pieces.Remove(piece);
-                piece.group = new PuzzleGroup();
-                piece.group.AddPiece(piece);
-            }
+        // Separate from group
+        if (piece.group != null && piece.group.pieces.Count > 1)
+        {
+            piece.group.pieces.Remove(piece);
+            PuzzleGroup newGroup = new PuzzleGroup();
+            newGroup.AddPiece(piece);
+        }
 
-            Sequence eraseSeq = DOTween.Sequence();
-            eraseSeq.Append(rect.DOScale(0.1f, eraseAnimationDuration).SetEase(Ease.InBack));
-            
-            CanvasGroup cg = piece.GetComponent<CanvasGroup>();
-            if (cg == null) cg = piece.gameObject.AddComponent<CanvasGroup>();
-            eraseSeq.Join(cg.DOFade(0, eraseAnimationDuration));
-
-            yield return eraseSeq.WaitForCompletion();
-
+        // Kill existing tweens
+        rect.DOKill();
+        
+        // Create shrink animation
+        Sequence eraseSeq = DOTween.Sequence();
+        eraseSeq.Append(rect.DOScale(0.1f, eraseAnimationDuration).SetEase(Ease.InBack));
+        
+        CanvasGroup cg = piece.GetComponent<CanvasGroup>();
+        if (cg == null) cg = piece.gameObject.AddComponent<CanvasGroup>();
+        eraseSeq.Join(cg.DOFade(0, eraseAnimationDuration));
+        
+        // When animation completes, reset and move to bottom
+        eraseSeq.OnComplete(() =>
+        {
             rect.localScale = Vector3.one;
             cg.alpha = 1f;
             drag.isPlaced = false;
             drag.canDrag = false;
             drag.ResetPiece();
-
+            
             PuzzleManager.Instance.MoveToBottom(piece.gameObject);
-            erasedCount++;
-            yield return new WaitForSeconds(eraseDelay);
-        }
-
-        yield return new WaitForSeconds(0.2f);
-        isEraseActive = false;
-        Debug.Log($"🗑️ Erased {erasedCount} incorrect pieces");
+            
+            completedCount++;
+        });
     }
+
+    // Wait until all pieces have completed their animation
+    float timeout = 0f;
+    float maxTimeout = eraseAnimationDuration + 2f; // Safety timeout
+    while (completedCount < erasedCount && timeout < maxTimeout)
+    {
+        yield return new WaitForSeconds(0.1f);
+        timeout += 0.1f;
+    }
+    
+    // Small extra delay for MoveToBottom coroutines to start
+    yield return new WaitForSeconds(0.3f);
+    
+    // Force rearrange bottom
+    if (PuzzleManager.Instance != null)
+    {
+        PuzzleManager.Instance.RearrangeBottomPublic();
+    }
+    
+    isEraseActive = false;
+    Debug.Log($"🗑️ Erased {erasedCount} incorrect pieces back to bottom panel");
+}
+    
+// Helper coroutine to clean up each piece after its animation
+private IEnumerator EraseSinglePieceAfterAnimation(PuzzlePiece piece, DragPiece drag, RectTransform rect, CanvasGroup cg, float duration)
+{
+    // Wait for the animation duration
+    yield return new WaitForSeconds(duration);
+    
+    // Reset piece properties
+    rect.localScale = Vector3.one;
+    cg.alpha = 1f;
+    drag.isPlaced = false;
+    drag.canDrag = false;
+    drag.ResetPiece();
+
+    // Send back to bottom panel
+    PuzzleManager.Instance.MoveToBottom(piece.gameObject);
+}
 
     // ============================================
     // UTILITY
