@@ -59,7 +59,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
         if (piece.group != null && piece.group.pieces.Count > 1)
         {
-            // 🔥 DEBUG: Only log once per drag (not every frame)
             if (Input.GetMouseButtonDown(0))
             {
                 Debug.Log($"🔍 [{gameObject.name}] Group has {piece.group.pieces.Count} pieces:");
@@ -121,7 +120,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
 
         CheckForMerge();
-        // If neither correct nor merge, piece stays where it was dropped.
     }
 
     private void CheckForMerge()
@@ -134,13 +132,11 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             if (other == piece) continue;
             if (other.group == piece.group) continue;
 
-            // 🔥 Only check pieces that are physically close on screen
             float physicalDistance = Vector2.Distance(
                 piece.GetComponent<RectTransform>().anchoredPosition,
                 other.GetComponent<RectTransform>().anchoredPosition
             );
             
-            // Skip if pieces are too far apart (more than 2x cell size)
             float maxMergeDistance = PuzzleManager.Instance.cellSize * 2.5f;
             if (physicalDistance > maxMergeDistance)
                 continue;
@@ -211,13 +207,11 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         
         float dist = Vector2.Distance(myPos, otherPos);
         
-        // Only consider pieces that are within reasonable range
-        // One piece-width distance maximum
         float maxDist = Mathf.Max(myRect.rect.width, myRect.rect.height) * 1.5f;
         
         Debug.Log($"🧩 {gameObject.name} ↔ {other.name}: dist={dist:F1}, maxDist={maxDist:F1}");
         
-        return dist <= maxDist && dist >= 20f; // Not overlapping, but close
+        return dist <= maxDist && dist >= 20f;
     }
 
     private void SnapExactlyAndMerge(PuzzlePiece other)
@@ -228,12 +222,10 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         DragPiece myDrag = piece.GetComponent<DragPiece>();
         DragPiece otherDrag = other.GetComponent<DragPiece>();
         
-        // Calculate where the dragged piece SHOULD be relative to the target piece
         Vector2 correctOffset = myDrag.correctPosition - otherDrag.correctPosition;
         Vector2 targetMyPos = otherRect.anchoredPosition + correctOffset;
         Vector2 offset = targetMyPos - myRect.anchoredPosition;
         
-        // 🔥 Move ALL pieces in the dragged group by the same offset
         foreach (var p in piece.group.pieces)
         {
             RectTransform r = p.GetComponent<RectTransform>();
@@ -241,21 +233,16 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             r.anchoredPosition += offset;
         }
         
-        // 🔥 DO NOT re-calculate individual positions — just merge the groups
-        // Only merge if the other piece is in the puzzle area
         if (other.GetComponent<RectTransform>().parent == PuzzleManager.Instance.pieceParent)
         {
-            // 🔥 MERGE THE ENTIRE GROUPS, not just single pieces
             PuzzleGroup otherGroup = other.group;
             PuzzleGroup myGroup = piece.group;
             
             if (otherGroup != null && otherGroup != myGroup)
             {
-                // Merge all pieces from other's group into our group
                 myGroup.Merge(otherGroup);
             }
             
-            // Remove from bottom tray
             if (PuzzleManager.Instance != null)
                 PuzzleManager.Instance.RemoveFromBottom(other.gameObject);
             
@@ -267,9 +254,21 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
     }
 
-    // ──────────────────────────
-    // SNAP TO CORRECT GRID POSITION
-    // ──────────────────────────
+    // Method to update raycast for entire group
+    private void UpdateGroupRaycast(bool enableRaycast)
+    {
+        if (piece.group == null) return;
+        
+        foreach (var p in piece.group.pieces)
+        {
+            DragPiece drag = p.GetComponent<DragPiece>();
+            if (drag != null && drag.canvasGroup != null)
+            {
+                drag.canvasGroup.blocksRaycasts = enableRaycast;
+            }
+        }
+    }
+
     IEnumerator SmoothSnap()
     {
         Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
@@ -280,7 +279,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             DragPiece drag = p.GetComponent<DragPiece>();
             RectTransform r = p.GetComponent<RectTransform>();
             
-            // 🔥 ONLY include pieces that are in the puzzle area (not in bottom tray)
             if (drag != null && r != null && !drag.isPlaced && r.parent == PuzzleManager.Instance.pieceParent)
             {
                 startPositions[p] = r.anchoredPosition;
@@ -316,6 +314,7 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             }
         }
         
+        // Disable raycast for ALL pieces in the group when placed
         foreach (var p in piece.group.pieces)
         {
             DragPiece drag = p.GetComponent<DragPiece>();
@@ -323,13 +322,19 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             {
                 drag.isPlaced = true;
                 drag.canDrag = false;
+                
+                // CRITICAL: Disable raycast for placed pieces
+                if (drag.canvasGroup != null)
+                {
+                    drag.canvasGroup.blocksRaycasts = false;
+                    drag.canvasGroup.alpha = 1f; // Keep visual, but allow clicks through
+                }
             }
         }
         
         if (PuzzleManager.Instance != null)
         {
             PuzzleManager.Instance.OnGroupPlaced(piece.group.pieces);
-            // Check completion after snapping
             CheckCompletion();
         }
         
@@ -339,6 +344,9 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public void ResetPiece()
     {
         isPlaced = false;
-        canvasGroup.blocksRaycasts = true;
+        if (canvasGroup != null)
+        {
+            canvasGroup.blocksRaycasts = true;
+        }
     }
 }

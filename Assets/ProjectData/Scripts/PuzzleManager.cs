@@ -149,10 +149,34 @@ public class PuzzleManager : MonoBehaviour
         
         placedCount += newlyPlaced;
         
+        // Update sorting order to prevent overlap issues
+        UpdatePiecesSortingOrder();
+        
         Debug.Log($"📊 Placed: {placedCount}/{totalPieces} (newly placed: {newlyPlaced})");
         
         if (placedCount >= totalPieces)
             OnPuzzleComplete();
+    }
+
+    public void UpdatePiecesSortingOrder()
+    {
+        // Sort pieces by their grid position (top to bottom, left to right)
+        List<PuzzlePiece> sortedPieces = new List<PuzzlePiece>(allPieces);
+        sortedPieces.Sort((a, b) => 
+        {
+            if (a.row == b.row)
+                return a.col.CompareTo(b.col);
+            return a.row.CompareTo(b.row);
+        });
+        
+        // Set sibling index based on position (higher row = lower index)
+        for (int i = 0; i < sortedPieces.Count; i++)
+        {
+            if (sortedPieces[i] != null)
+            {
+                sortedPieces[i].transform.SetSiblingIndex(i);
+            }
+        }
     }
 
     void InitLevel()
