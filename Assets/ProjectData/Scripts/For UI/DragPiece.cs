@@ -9,7 +9,7 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
     private RectTransform rectTransform;
     private Canvas canvas;
-    private CanvasGroup canvasGroup;
+    public CanvasGroup canvasGroup;
 
     [Header("Settings")]
     public float snapThreshold = 120f;

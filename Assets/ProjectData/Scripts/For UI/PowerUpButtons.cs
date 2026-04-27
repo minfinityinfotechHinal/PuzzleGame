@@ -80,19 +80,136 @@ public class PowerUpButtons : MonoBehaviour
     // 💡 HINT
     // ============================================
     public void OnHintButtonClicked()
+{
+    if (remainingHints <= 0)
     {
-        if (remainingHints <= 0)
-        {
-            ShakeButton(hintButton);
-            ShowNoHintsFeedback();
-            return;
-        }
-
-        remainingHints--;
-        UpdateHintCountText();
-        ShowHint();
-        BounceButton(hintButton);
+        ShakeButton(hintButton);
+        ShowNoHintsFeedback();
+        return;
     }
+
+    // Find unplaced pieces ONLY from visible bottom slots (first 6)
+    List<PuzzlePiece> visibleBottomPieces = new List<PuzzlePiece>();
+    
+    foreach (var piece in PuzzleManager.Instance.allPieces)
+    {
+        DragPiece drag = piece.GetComponent<DragPiece>();
+        GameObject pieceObj = piece.gameObject;
+        
+        // Only pick pieces that are:
+        // 1. Not placed
+        // 2. In bottom panel parent
+        // 3. Active (visible) - this ensures only first 6
+        if (drag != null && !drag.isPlaced && 
+            pieceObj.transform.parent == PuzzleManager.Instance.bottomParent &&
+            pieceObj.activeSelf)
+        {
+            visibleBottomPieces.Add(piece);
+        }
+    }
+
+    if (visibleBottomPieces.Count == 0)
+    {
+        Debug.Log("✅ No visible pieces in bottom panel to hint!");
+        return;
+    }
+
+    // Use one hint
+    remainingHints--;
+    UpdateHintCountText();
+    BounceButton(hintButton);
+
+    // Pick random piece from VISIBLE bottom pieces only
+    PuzzlePiece hintPiece = visibleBottomPieces[Random.Range(0, visibleBottomPieces.Count)];
+    StartCoroutine(AutoPlacePiece(hintPiece));
+    
+    Debug.Log($"💡 Hint used! {remainingHints} remaining. Placed: {hintPiece.name}");
+}
+
+    private IEnumerator AutoPlacePiece(PuzzlePiece hintPiece)
+{
+    DragPiece hintDrag = hintPiece.GetComponent<DragPiece>();
+    RectTransform hintRect = hintPiece.GetComponent<RectTransform>();
+    
+    if (hintDrag == null || hintRect == null) yield break;
+
+    Debug.Log($"💡 Auto-placing: {hintPiece.name} from bottom panel");
+
+    // Step 1: Remove from bottom BUT DON'T FILL OVERFLOW YET
+    if (PuzzleManager.Instance != null)
+    {
+        // Manually remove without triggering FillFromOverflow
+        PuzzleManager.Instance.RemoveFromBottomWithoutFill(hintPiece.gameObject);
+    }
+
+    // Step 2: Move to puzzle parent and bring to front
+    hintRect.SetParent(PuzzleManager.Instance.pieceParent, true);
+    hintRect.SetAsLastSibling();
+    
+    // Ensure piece is visible and scaled properly
+    hintPiece.gameObject.SetActive(true);
+    hintRect.localScale = Vector3.one;
+
+    // Step 3: Lift effect
+    hintRect.DOScale(1.3f, 0.15f).SetEase(Ease.OutBack);
+    yield return new WaitForSeconds(0.2f);
+
+    // Step 4: Fly to correct position
+    float flyDuration = 0.5f;
+    hintRect.DOAnchorPos(hintDrag.correctPosition, flyDuration).SetEase(Ease.InOutCubic);
+    hintRect.DOScale(1f, flyDuration).SetEase(Ease.InOutQuad);
+
+    // Wait for the piece to fly away from bottom area before filling
+    yield return new WaitForSeconds(flyDuration * 0.3f);
+
+    // Step 5: NOW fill the empty slot from overflow (piece has moved away)
+    if (PuzzleManager.Instance != null)
+    {
+        PuzzleManager.Instance.RearrangeBottomPublic();
+    }
+
+    // Wait for fly to complete
+    yield return new WaitForSeconds(flyDuration * 0.7f);
+
+    // Step 6: Play particle effect
+    if (hintDrag.particleObject != null)
+    {
+        hintDrag.particleObject.SetActive(true);
+    }
+
+    // Step 7: Snap to exact position and lock
+    hintRect.anchoredPosition = hintDrag.correctPosition;
+    hintDrag.isPlaced = true;
+    hintDrag.canDrag = false;
+    
+    if (hintDrag.canvasGroup != null)
+    {
+        hintDrag.canvasGroup.blocksRaycasts = false;
+        hintDrag.canvasGroup.alpha = 1f;
+    }
+
+    // Small snap bounce
+    hintRect.DOPunchScale(Vector3.one * 0.15f, 0.2f, 2, 0.5f);
+
+    // Step 8: Notify PuzzleManager about placement
+    if (PuzzleManager.Instance != null)
+    {
+        List<PuzzlePiece> placedList = new List<PuzzlePiece> { hintPiece };
+        PuzzleManager.Instance.OnGroupPlaced(placedList);
+    }
+
+    // Step 9: Turn off particle after 2 seconds
+    if (hintDrag.particleObject != null)
+    {
+        yield return new WaitForSeconds(2f);
+        hintDrag.particleObject.SetActive(false);
+    }
+
+    // Step 10: Check completion
+    hintDrag.CheckCompletion();
+    
+    Debug.Log($"💡 Hint complete! {hintPiece.name} placed.");
+}
 
     private void ShowHint()
     {

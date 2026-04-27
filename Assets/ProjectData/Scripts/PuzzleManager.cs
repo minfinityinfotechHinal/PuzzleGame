@@ -303,6 +303,21 @@ public class PuzzleManager : MonoBehaviour
                 piece.bottom = spawnedPieces[i + cols].GetComponent<PuzzlePiece>();
         }
     }
+
+
+   /// </summary>
+    public void RemoveFromBottomWithoutFill(GameObject piece)
+    {
+        int index = System.Array.IndexOf(slotPieces, piece);
+
+        if (index >= 0)
+            slotPieces[index] = null;
+
+        bottomPieces.Remove(piece);
+        
+        // Don't call RearrangeBottom or FillFromOverflow yet
+        Debug.Log($"📤 Removed {piece.name} from bottom (slot {index} empty, will fill later)");
+    }
     // Add this public method so PowerUpButtons can call RearrangeBottom
     public void RearrangeBottomPublic()
     {
