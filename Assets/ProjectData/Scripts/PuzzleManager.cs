@@ -138,58 +138,65 @@ public class PuzzleManager : MonoBehaviour
     // Add this public method to your PuzzleManager class
     // Add this to PuzzleManager class - handles visible + overflow properly
     public void UpdateSlotPiecesAfterShuffleWithOverflow(List<GameObject> visiblePieces, List<GameObject> hiddenPieces)
+{
+    // Clear all slots
+    for (int i = 0; i < maxVisible; i++)
     {
-        // Clear all slots
-        for (int i = 0; i < maxVisible; i++)
-        {
-            slotPieces[i] = null;
-        }
-        
-        // Assign visible pieces to first 6 slots
-        for (int i = 0; i < visiblePieces.Count && i < maxVisible; i++)
-        {
-            slotPieces[i] = visiblePieces[i];
-            
-            // Make sure they're active and draggable
-            visiblePieces[i].SetActive(true);
-            DragPiece drag = visiblePieces[i].GetComponent<DragPiece>();
-            if (drag != null)
-            {
-                drag.canDrag = true;
-            }
-        }
-        
-        // Clear and rebuild overflow queue with hidden pieces
-        overflowQueue.Clear();
-        foreach (var piece in hiddenPieces)
-        {
-            overflowQueue.Enqueue(piece);
-            
-            // Make sure hidden pieces are inactive
-            piece.SetActive(false);
-            DragPiece drag = piece.GetComponent<DragPiece>();
-            if (drag != null)
-            {
-                drag.canDrag = false;
-            }
-        }
-        
-        // Update bottomPieces list with ALL pieces (maintains order)
-        bottomPieces.Clear();
-        foreach (var piece in visiblePieces)
-        {
-            bottomPieces.Add(piece);
-        }
-        foreach (var piece in hiddenPieces)
-        {
-            bottomPieces.Add(piece);
-        }
-        
-        // Reset overflow index
-        overflowIndex = hiddenPieces.Count;
-        
-        Debug.Log($"📋 Slots updated: {visiblePieces.Count} visible in slots, {hiddenPieces.Count} in overflow queue");
+        slotPieces[i] = null;
     }
+    
+    // Assign visible pieces to slots 0-5 with correct positions
+    for (int i = 0; i < visiblePieces.Count && i < maxVisible; i++)
+    {
+        slotPieces[i] = visiblePieces[i];
+        
+        // Ensure correct position and state
+        RectTransform rect = visiblePieces[i].GetComponent<RectTransform>();
+        if (rect != null)
+        {
+            rect.SetParent(bottomParent, false);
+            rect.anchoredPosition = new Vector2(i * spacing, 0);
+            rect.localScale = Vector3.one;
+        }
+        
+        visiblePieces[i].SetActive(true);
+        
+        DragPiece drag = visiblePieces[i].GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.canDrag = true;
+        }
+    }
+    
+    // Clear and rebuild overflow queue with hidden pieces
+    overflowQueue.Clear();
+    foreach (var piece in hiddenPieces)
+    {
+        piece.SetActive(false);
+        piece.transform.SetParent(bottomParent, false);
+        
+        DragPiece drag = piece.GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.canDrag = false;
+        }
+        
+        overflowQueue.Enqueue(piece);
+    }
+    
+    // Update bottomPieces list - IMPORTANT: hidden pieces go AFTER visible
+    bottomPieces.Clear();
+    foreach (var piece in visiblePieces)
+    {
+        bottomPieces.Add(piece);
+    }
+    // Don't add hidden pieces to bottomPieces - they're in overflowQueue
+    
+    // Reset overflow index
+    overflowIndex = hiddenPieces.Count;
+    
+    Debug.Log($"📋 Shuffle update: {visiblePieces.Count} visible in slots, {hiddenPieces.Count} in overflow queue");
+}
 
     public void OnGroupPlaced(List<PuzzlePiece> placedPieces)
     {
@@ -259,18 +266,17 @@ public class PuzzleManager : MonoBehaviour
     }
 
     public void RemoveFromBottom(GameObject piece)
-    {
-        int index = System.Array.IndexOf(slotPieces, piece);
+{
+    int index = System.Array.IndexOf(slotPieces, piece);
 
-        if (index >= 0)
-            slotPieces[index] = null;
+    if (index >= 0)
+        slotPieces[index] = null;
 
-        bottomPieces.Remove(piece);
+    bottomPieces.Remove(piece);
 
-        RearrangeBottom();
-        FillFromOverflow();
-    }
-
+    RearrangeBottom();
+    FillFromOverflow(); // This should pull from overflowQueue
+}
     void AssignNeighbors()
     {
         for (int i = 0; i < spawnedPieces.Length; i++)
@@ -299,41 +305,56 @@ public class PuzzleManager : MonoBehaviour
     }
 
     void RearrangeBottom()
+{
+    List<GameObject> valid = new List<GameObject>();
+
+    foreach (var p in slotPieces)
+        if (p != null)
+            valid.Add(p);
+
+    for (int i = 0; i < maxVisible; i++)
+        slotPieces[i] = null;
+
+    for (int i = 0; i < valid.Count; i++)
     {
-        List<GameObject> valid = new List<GameObject>();
-
-        foreach (var p in slotPieces)
-            if (p != null)
-                valid.Add(p);
-
-        for (int i = 0; i < maxVisible; i++)
-            slotPieces[i] = null;
-
-        for (int i = 0; i < valid.Count; i++)
+        // Reset scale before rearranging
+        RectTransform rect = valid[i].GetComponent<RectTransform>();
+        if (rect != null)
         {
-            slotPieces[i] = valid[i];
-            StartCoroutine(MoveToSlot(valid[i], i));
+            rect.localScale = Vector3.one;
         }
+        valid[i].SetActive(true);
+        
+        slotPieces[i] = valid[i];
+        StartCoroutine(MoveToSlot(valid[i], i));
     }
+}
 
     void FillFromOverflow()
+{
+    for (int i = 0; i < maxVisible; i++)
     {
-        for (int i = 0; i < maxVisible; i++)
+        if (slotPieces[i] == null && overflowQueue.Count > 0)
         {
-            if (slotPieces[i] == null && overflowQueue.Count > 0)
+            GameObject piece = overflowQueue.Dequeue();
+
+            piece.SetActive(true);
+            piece.transform.SetParent(bottomParent, true);
+            
+            // FIX: Ensure scale is set to 1 when bringing from overflow
+            RectTransform rect = piece.GetComponent<RectTransform>();
+            if (rect != null)
             {
-                GameObject piece = overflowQueue.Dequeue();
-
-                piece.SetActive(true);
-                piece.transform.SetParent(bottomParent, true);
-
-                slotPieces[i] = piece;
-                bottomPieces.Add(piece);
-
-                StartCoroutine(MoveToSlot(piece, i));
+                rect.localScale = Vector3.one; // Reset scale to visible
             }
+
+            slotPieces[i] = piece;
+            bottomPieces.Add(piece);
+
+            StartCoroutine(MoveToSlot(piece, i));
         }
     }
+}
 
     IEnumerator StartFlow()
     {
@@ -480,50 +501,55 @@ public class PuzzleManager : MonoBehaviour
     }
 
     IEnumerator MoveToSlot(GameObject piece, int index)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
+
+    // FIX: Ensure scale is 1 before animating
+    rect.localScale = Vector3.one;
+    piece.SetActive(true);
+
+    Vector2 start = rect.anchoredPosition;
+    Vector2 target = new Vector2(index * spacing, 0);
+
+    float t = 0;
+
+    while (t < 1)
     {
-        RectTransform rect = piece.GetComponent<RectTransform>();
-
-        Vector2 start = rect.anchoredPosition;
-        Vector2 target = new Vector2(index * spacing, 0);
-
-        float t = 0;
-
-        while (t < 1)
-        {
-            t += Time.deltaTime * moveSpeed;
-            rect.anchoredPosition = Vector2.Lerp(start, target, t);
-            yield return null;
-        }
-
-        rect.anchoredPosition = target;
-
-        DragPiece drag = piece.GetComponent<DragPiece>();
-        if (drag != null) drag.canDrag = true;
+        t += Time.deltaTime * moveSpeed;
+        rect.anchoredPosition = Vector2.Lerp(start, target, t);
+        yield return null;
     }
+
+    rect.anchoredPosition = target;
+
+    DragPiece drag = piece.GetComponent<DragPiece>();
+    if (drag != null) drag.canDrag = true;
+}
 
     IEnumerator MoveToOverflow(GameObject piece)
+{
+    RectTransform rect = piece.GetComponent<RectTransform>();
+
+    Vector2 start = rect.anchoredPosition;
+
+    float x = (maxVisible + overflowIndex) * spacing;
+    Vector2 finalTarget = new Vector2(x, 0);
+
+    overflowIndex++;
+
+    float t = 0f;
+
+    while (t < 1f)
     {
-        RectTransform rect = piece.GetComponent<RectTransform>();
-
-        Vector2 start = rect.anchoredPosition;
-
-        float x = (maxVisible + overflowIndex) * spacing;
-        Vector2 finalTarget = new Vector2(x, 0);
-
-        overflowIndex++;
-
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime * moveSpeed;
-            rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
-            yield return null;
-        }
-
-        rect.anchoredPosition = finalTarget;
-        piece.SetActive(false);
+        t += Time.deltaTime * moveSpeed;
+        rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
+        yield return null;
     }
+
+    rect.anchoredPosition = finalTarget;
+    rect.localScale = Vector3.zero; // Scale to 0 when hidden
+    piece.SetActive(false);
+}
 
     int GetEmptySlot()
     {
@@ -702,6 +728,53 @@ public class PuzzleManager : MonoBehaviour
             onComplete?.Invoke();
         });
     }
+
+    // Add this method to PuzzleManager class (put it near other public methods)
+    public void ForceRearrangeBottom()
+{
+    // Collect all currently active pieces in bottom parent
+    List<GameObject> activePieces = new List<GameObject>();
+    
+    for (int i = 0; i < maxVisible; i++)
+    {
+        if (slotPieces[i] != null && slotPieces[i].activeSelf)
+        {
+            activePieces.Add(slotPieces[i]);
+        }
+    }
+
+    // Clear slots
+    for (int i = 0; i < maxVisible; i++)
+    {
+        slotPieces[i] = null;
+    }
+
+    // Reassign active pieces to correct slot positions
+    for (int i = 0; i < activePieces.Count && i < maxVisible; i++)
+    {
+        slotPieces[i] = activePieces[i];
+        
+        RectTransform rect = activePieces[i].GetComponent<RectTransform>();
+        if (rect != null)
+        {
+            rect.SetParent(bottomParent, false);
+            rect.anchoredPosition = new Vector2(i * spacing, 0);
+            rect.localScale = Vector3.one; // ENSURE SCALE IS 1
+            activePieces[i].SetActive(true);
+        }
+        
+        DragPiece drag = activePieces[i].GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.canDrag = true;
+        }
+    }
+
+    // Fill any empty slots from overflow
+    FillFromOverflow();
+    
+    Debug.Log($"📋 Rearranged bottom: {activePieces.Count} pieces visible, overflow queue: {overflowQueue.Count}");
+}
 
     void ResetCompletePanel()
     {

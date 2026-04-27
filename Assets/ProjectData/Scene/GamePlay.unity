@@ -3367,7 +3367,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.9999833, y: -243}
+  m_AnchoredPosition: {x: -0.99998474, y: -243}
   m_SizeDelta: {x: 207, y: 213}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1289083747
@@ -4899,7 +4899,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.9999833, y: -82.2}
+  m_AnchoredPosition: {x: -0.99998474, y: -82.2}
   m_SizeDelta: {x: 207, y: 213}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1769923675
@@ -5253,10 +5253,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 07b16c88e9ba94a57a0a3abd9b656222, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PowerUpButtons
-  hintButton: {fileID: 0}
-  shuffleButton: {fileID: 0}
-  previewButton: {fileID: 0}
-  eraseButton: {fileID: 0}
+  hintButton: {fileID: 1289083749}
+  shuffleButton: {fileID: 1717779130}
+  previewButton: {fileID: 1769923677}
+  eraseButton: {fileID: 1843796127}
   maxHints: 3
   hintCountText: {fileID: 0}
   hintIndicatorPrefab: {fileID: 0}
@@ -5311,7 +5311,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.9999833, y: 79.2}
+  m_AnchoredPosition: {x: -0.99998474, y: 79.2}
   m_SizeDelta: {x: 207, y: 213}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1843796125

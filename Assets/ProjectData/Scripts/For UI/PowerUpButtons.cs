@@ -9,16 +9,16 @@ public class PowerUpButtons : MonoBehaviour
     public static PowerUpButtons Instance;
 
     [Header("=== BUTTON REFERENCES ===")]
-    public Button hintButton;        // 💡 Hint
-    public Button shuffleButton;     // 🔀 Shuffle bottom pieces
-    public Button previewButton;     // 🧩 Preview reference image
-    public Button eraseButton;       // 🗑️ Erase incorrect pieces
+    public Button hintButton;
+    public Button shuffleButton;
+    public Button previewButton;
+    public Button eraseButton;
 
     [Header("=== HINT SYSTEM 💡 ===")]
     public int maxHints = 3;
     private int remainingHints;
     public Text hintCountText;
-    public GameObject hintIndicatorPrefab;  // Glowing circle prefab
+    public GameObject hintIndicatorPrefab;
     public float hintShowDuration = 2f;
     public Color hintGlowColor = new Color(1f, 0.8f, 0.2f, 0.6f);
 
@@ -60,7 +60,6 @@ public class PowerUpButtons : MonoBehaviour
         InitializeAllButtons();
         UpdateHintCountText();
         
-        // Hide preview panel initially
         if (referenceImagePanel != null)
             referenceImagePanel.SetActive(false);
     }
@@ -69,25 +68,21 @@ public class PowerUpButtons : MonoBehaviour
     {
         if (hintButton != null)
             hintButton.onClick.AddListener(OnHintButtonClicked);
-
         if (shuffleButton != null)
             shuffleButton.onClick.AddListener(OnShuffleButtonClicked);
-
         if (previewButton != null)
             previewButton.onClick.AddListener(OnPreviewButtonClicked);
-
         if (eraseButton != null)
             eraseButton.onClick.AddListener(OnEraseButtonClicked);
     }
 
     // ============================================
-    // 💡 HINT BUTTON - Shows where a piece goes
+    // 💡 HINT
     // ============================================
     public void OnHintButtonClicked()
     {
         if (remainingHints <= 0)
         {
-            Debug.Log("❌ No hints remaining!");
             ShakeButton(hintButton);
             ShowNoHintsFeedback();
             return;
@@ -96,35 +91,26 @@ public class PowerUpButtons : MonoBehaviour
         remainingHints--;
         UpdateHintCountText();
         ShowHint();
-        
-        // Button bounce animation
         BounceButton(hintButton);
-        
-        Debug.Log($"💡 Hint used! {remainingHints} remaining");
     }
 
     private void ShowHint()
     {
-        // Find unplaced pieces
         List<PuzzlePiece> unplacedPieces = new List<PuzzlePiece>();
         foreach (var piece in PuzzleManager.Instance.allPieces)
         {
             DragPiece drag = piece.GetComponent<DragPiece>();
             if (drag != null && !drag.isPlaced)
-            {
                 unplacedPieces.Add(piece);
-            }
         }
 
         if (unplacedPieces.Count == 0)
         {
-            Debug.Log("✅ All pieces already placed!");
-            remainingHints++; // Refund hint
+            remainingHints++;
             UpdateHintCountText();
             return;
         }
 
-        // Pick random unplaced piece
         PuzzlePiece hintPiece = unplacedPieces[Random.Range(0, unplacedPieces.Count)];
         StartCoroutine(ShowHintAnimation(hintPiece));
     }
@@ -132,27 +118,20 @@ public class PowerUpButtons : MonoBehaviour
     private IEnumerator ShowHintAnimation(PuzzlePiece hintPiece)
     {
         DragPiece hintDrag = hintPiece.GetComponent<DragPiece>();
-        RectTransform hintRect = hintPiece.GetComponent<RectTransform>();
-        
-        if (hintDrag == null || hintRect == null) yield break;
+        if (hintDrag == null) yield break;
 
-        // 1. Highlight the piece
         CanvasGroup pieceCG = hintPiece.GetComponent<CanvasGroup>();
         if (pieceCG == null)
             pieceCG = hintPiece.gameObject.AddComponent<CanvasGroup>();
 
-        // 2. Show ghost at correct position
         if (hintDrag.ghostImage != null)
         {
             hintDrag.ghostImage.SetActive(true);
             RectTransform ghostRect = hintDrag.ghostImage.GetComponent<RectTransform>();
             if (ghostRect != null)
-            {
                 ghostRect.DOScale(1.3f, 0.4f).SetLoops(-1, LoopType.Yoyo);
-            }
         }
 
-        // 3. Create glowing indicator at correct position
         GameObject indicator = null;
         if (hintIndicatorPrefab != null)
         {
@@ -160,13 +139,8 @@ public class PowerUpButtons : MonoBehaviour
             indicator.name = "HintIndicator";
             RectTransform indRect = indicator.GetComponent<RectTransform>();
             indRect.anchoredPosition = hintDrag.correctPosition;
-            
-            // Pulse animation
             indRect.DOScale(1.4f, 0.5f).SetLoops(-1, LoopType.Yoyo);
-            indRect.DORotate(new Vector3(0, 0, 360), 2f, RotateMode.FastBeyond360)
-                .SetLoops(-1, LoopType.Restart);
             
-            // Fade pulse
             Image indImg = indicator.GetComponent<Image>();
             if (indImg != null)
             {
@@ -175,7 +149,6 @@ public class PowerUpButtons : MonoBehaviour
             }
         }
 
-        // 4. Flash the piece
         float elapsedTime = 0f;
         float flashInterval = 0.3f;
         bool isVisible = true;
@@ -188,7 +161,6 @@ public class PowerUpButtons : MonoBehaviour
             yield return new WaitForSeconds(flashInterval);
         }
 
-        // 5. Cleanup
         pieceCG.alpha = 1f;
         
         if (hintDrag.ghostImage != null)
@@ -203,11 +175,7 @@ public class PowerUpButtons : MonoBehaviour
         }
 
         if (indicator != null)
-        {
             Destroy(indicator);
-        }
-
-        Debug.Log($"💡 Hint completed for piece: {hintPiece.name}");
     }
 
     private void ShowNoHintsFeedback()
@@ -221,148 +189,141 @@ public class PowerUpButtons : MonoBehaviour
     }
 
     // ============================================
-    // 🔀 SHUFFLE BUTTON - Shuffles bottom panel pieces
+    // 🔀 SHUFFLE
     // ============================================
     public void OnShuffleButtonClicked()
     {
         if (isShuffling) return;
-
-        StartCoroutine(ShuffleAllBottomPiecesWithOverflow());
+        StartCoroutine(ShuffleWithScaleAnimation());
         BounceButton(shuffleButton);
     }
 
-   private IEnumerator ShuffleAllBottomPiecesWithOverflow()
-{
-    isShuffling = true;
-
-    // STEP 1: Collect ALL pieces in bottom panel (both active and inactive)
-    List<GameObject> allBottomPieces = new List<GameObject>();
-    
-    foreach (Transform child in PuzzleManager.Instance.bottomParent)
+    private IEnumerator ShuffleWithScaleAnimation()
     {
-        DragPiece drag = child.GetComponent<DragPiece>();
-        if (drag != null && !drag.isPlaced)
+        isShuffling = true;
+
+        // Collect ALL pieces in bottom panel
+        List<GameObject> allBottomPieces = new List<GameObject>();
+        foreach (Transform child in PuzzleManager.Instance.bottomParent)
         {
-            allBottomPieces.Add(child.gameObject);
+            DragPiece drag = child.GetComponent<DragPiece>();
+            if (drag != null && !drag.isPlaced)
+                allBottomPieces.Add(child.gameObject);
         }
-    }
 
-    if (allBottomPieces.Count < 2)
-    {
-        Debug.Log("⚠️ Not enough pieces to shuffle!");
-        isShuffling = false;
-        yield break;
-    }
-
-    Debug.Log($"🔀 Found {allBottomPieces.Count} total pieces in bottom panel. Max visible: 6");
-
-    // STEP 2: Shuffle ALL pieces randomly
-    for (int i = allBottomPieces.Count - 1; i > 0; i--)
-    {
-        int j = Random.Range(0, i + 1);
-        GameObject temp = allBottomPieces[i];
-        allBottomPieces[i] = allBottomPieces[j];
-        allBottomPieces[j] = temp;
-    }
-
-    // STEP 3: Separate into visible (first 6) and hidden (rest)
-    int maxVisible = 6; // Your max visible slots
-    List<GameObject> newVisiblePieces = new List<GameObject>();
-    List<GameObject> newHiddenPieces = new List<GameObject>();
-
-    for (int i = 0; i < allBottomPieces.Count; i++)
-    {
-        if (i < maxVisible)
+        if (allBottomPieces.Count < 2)
         {
-            newVisiblePieces.Add(allBottomPieces[i]);
+            isShuffling = false;
+            yield break;
         }
-        else
-        {
-            newHiddenPieces.Add(allBottomPieces[i]);
-        }
-    }
 
-    // STEP 4: Position and activate visible pieces with animation
-    for (int i = 0; i < newVisiblePieces.Count; i++)
-    {
-        GameObject piece = newVisiblePieces[i];
-        RectTransform rect = piece.GetComponent<RectTransform>();
-        DragPiece drag = piece.GetComponent<DragPiece>();
-        
-        if (rect != null)
+        // Shuffle
+        for (int i = allBottomPieces.Count - 1; i > 0; i--)
         {
-            // Ensure parent is bottomParent
-            rect.SetParent(PuzzleManager.Instance.bottomParent, true);
-            
-            // ACTIVATE the piece
-            piece.SetActive(true);
-            
-            // Enable dragging
-            if (drag != null)
+            int j = Random.Range(0, i + 1);
+            GameObject temp = allBottomPieces[i];
+            allBottomPieces[i] = allBottomPieces[j];
+            allBottomPieces[j] = temp;
+        }
+
+        // Split visible/hidden
+        int maxVisible = 6;
+        List<GameObject> newVisible = new List<GameObject>();
+        List<GameObject> newHidden = new List<GameObject>();
+
+        for (int i = 0; i < allBottomPieces.Count; i++)
+        {
+            if (i < maxVisible)
+                newVisible.Add(allBottomPieces[i]);
+            else
+                newHidden.Add(allBottomPieces[i]);
+        }
+
+        // PHASE 1: Scale down visible pieces
+        foreach (Transform child in PuzzleManager.Instance.bottomParent)
+        {
+            if (child.gameObject.activeSelf)
             {
-                drag.canDrag = true;
+                RectTransform rect = child.GetComponent<RectTransform>();
+                if (rect != null)
+                {
+                    rect.DOKill();
+                    rect.DOScale(Vector3.zero, shuffleDuration * 0.4f).SetEase(Ease.InBack);
+                }
             }
-            
-            // Target position with proper spacing
-            Vector2 targetPos = new Vector2(i * PuzzleManager.Instance.spacing, 0);
-            
-            // Animate to position
-            rect.DOAnchorPos(targetPos, shuffleDuration)
-                .SetEase(shuffleEase);
-            
-            // Bounce effect
-            rect.DOPunchScale(Vector3.one * 0.15f, shuffleDuration, 2, 0.5f);
-            
-            yield return new WaitForSeconds(shuffleDelay);
         }
-    }
 
-    // STEP 5: Hide overflow pieces (move them off-screen and deactivate)
-    float overflowStartX = maxVisible * PuzzleManager.Instance.spacing;
-    
-    for (int i = 0; i < newHiddenPieces.Count; i++)
-    {
-        GameObject piece = newHiddenPieces[i];
-        RectTransform rect = piece.GetComponent<RectTransform>();
-        DragPiece drag = piece.GetComponent<DragPiece>();
-        
-        if (rect != null)
-        {
-            // Move to overflow position
-            Vector2 overflowPos = new Vector2(overflowStartX + (i * PuzzleManager.Instance.spacing), 0);
-            rect.anchoredPosition = overflowPos;
-            
-            // DEACTIVATE the piece
+        yield return new WaitForSeconds(shuffleDuration * 0.5f);
+
+        // PHASE 2: Deactivate all, then position
+        foreach (var piece in allBottomPieces)
             piece.SetActive(false);
+
+        for (int i = 0; i < newVisible.Count; i++)
+        {
+            RectTransform rect = newVisible[i].GetComponent<RectTransform>();
+            DragPiece drag = newVisible[i].GetComponent<DragPiece>();
             
-            // Disable dragging
-            if (drag != null)
+            if (rect != null)
             {
-                drag.canDrag = false;
+                rect.SetParent(PuzzleManager.Instance.bottomParent, false);
+                rect.anchoredPosition = new Vector2(i * PuzzleManager.Instance.spacing, 0);
+                rect.localScale = Vector3.zero;
+                newVisible[i].SetActive(true);
+                if (drag != null) drag.canDrag = true;
             }
         }
+
+        float overflowX = maxVisible * PuzzleManager.Instance.spacing;
+        for (int i = 0; i < newHidden.Count; i++)
+        {
+            RectTransform rect = newHidden[i].GetComponent<RectTransform>();
+            DragPiece drag = newHidden[i].GetComponent<DragPiece>();
+            
+            if (rect != null)
+            {
+                rect.SetParent(PuzzleManager.Instance.bottomParent, false);
+                rect.anchoredPosition = new Vector2(overflowX + (i * PuzzleManager.Instance.spacing), 0);
+                rect.localScale = Vector3.zero;
+                newHidden[i].SetActive(false);
+                if (drag != null) drag.canDrag = false;
+            }
+        }
+
+        yield return new WaitForSeconds(0.05f);
+
+        // PHASE 3: Scale up with stagger
+        for (int i = 0; i < newVisible.Count; i++)
+        {
+            RectTransform rect = newVisible[i].GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                rect.DOKill();
+                rect.DOScale(Vector3.one, shuffleDuration * 0.5f)
+                    .SetEase(Ease.OutBack)
+                    .SetDelay(i * shuffleDelay);
+            }
+        }
+
+        yield return new WaitForSeconds(shuffleDuration * 0.5f + (newVisible.Count * shuffleDelay));
+
+        // PHASE 4: Update PuzzleManager
+        if (PuzzleManager.Instance != null)
+        {
+            PuzzleManager.Instance.UpdateSlotPiecesAfterShuffleWithOverflow(newVisible, newHidden);
+            PuzzleManager.Instance.ForceRearrangeBottom();
+        }
+
+        isShuffling = false;
+        Debug.Log($"🔀 Shuffle done! Visible: {newVisible.Count}, Hidden: {newHidden.Count}");
     }
-
-    // Wait for all animations
-    yield return new WaitForSeconds(shuffleDuration);
-
-    // STEP 6: Update PuzzleManager tracking
-    if (PuzzleManager.Instance != null)
-    {
-        PuzzleManager.Instance.UpdateSlotPiecesAfterShuffleWithOverflow(newVisiblePieces, newHiddenPieces);
-    }
-
-    isShuffling = false;
-    Debug.Log($"🔀 Shuffle done! Visible: {newVisiblePieces.Count}, Hidden: {newHiddenPieces.Count}");
-}
 
     // ============================================
-    // 🧩 PREVIEW BUTTON - Shows/hides reference image
+    // 🧩 PREVIEW
     // ============================================
     public void OnPreviewButtonClicked()
     {
         isPreviewActive = !isPreviewActive;
-
         if (isPreviewActive)
         {
             ShowReferenceImage();
@@ -373,60 +334,44 @@ public class PowerUpButtons : MonoBehaviour
             HideReferenceImage();
             ResetButtonColor(previewButton);
         }
-
         BounceButton(previewButton);
     }
 
     private void ShowReferenceImage()
     {
         if (referenceImagePanel == null) return;
-
         referenceImagePanel.SetActive(true);
         referenceImagePanel.transform.localScale = Vector3.zero;
+        referenceImagePanel.transform.DOScale(1f, previewFadeDuration).SetEase(Ease.OutBack);
         
-        // Animate appearance
-        referenceImagePanel.transform.DOScale(1f, previewFadeDuration)
-            .SetEase(Ease.OutBack);
-
         CanvasGroup cg = referenceImagePanel.GetComponent<CanvasGroup>();
-        if (cg == null)
-            cg = referenceImagePanel.AddComponent<CanvasGroup>();
-        
+        if (cg == null) cg = referenceImagePanel.AddComponent<CanvasGroup>();
         cg.alpha = 0;
         cg.DOFade(0.75f, previewFadeDuration);
-        
-        Debug.Log("🧩 Reference image shown");
     }
 
     private void HideReferenceImage()
     {
         if (referenceImagePanel == null) return;
-
+        
         CanvasGroup cg = referenceImagePanel.GetComponent<CanvasGroup>();
-        if (cg != null)
-        {
-            cg.DOFade(0, previewFadeDuration * 0.5f);
-        }
-
+        if (cg != null) cg.DOFade(0, previewFadeDuration * 0.5f);
+        
         referenceImagePanel.transform.DOScale(0.8f, previewFadeDuration * 0.5f)
             .SetEase(Ease.InBack)
             .OnComplete(() => referenceImagePanel.SetActive(false));
-        
-        Debug.Log("🧩 Reference image hidden");
     }
 
     // ============================================
-    // 🗑️ ERASE BUTTON - Returns incorrect pieces to bottom
+    // 🗑️ ERASE
     // ============================================
     public void OnEraseButtonClicked()
     {
         if (isEraseActive) return;
 
         List<PuzzlePiece> piecesToErase = GetIncorrectPieces();
-
         if (piecesToErase.Count == 0)
         {
-            Debug.Log("✅ No incorrect pieces to erase!");
             ShakeButton(eraseButton);
             return;
         }
@@ -438,27 +383,18 @@ public class PowerUpButtons : MonoBehaviour
     private List<PuzzlePiece> GetIncorrectPieces()
     {
         List<PuzzlePiece> incorrectPieces = new List<PuzzlePiece>();
-
         foreach (var piece in PuzzleManager.Instance.allPieces)
         {
             DragPiece drag = piece.GetComponent<DragPiece>();
             RectTransform rect = piece.GetComponent<RectTransform>();
-
-            // Skip pieces not in puzzle area
             if (drag == null || rect == null) continue;
             if (rect.parent != PuzzleManager.Instance.pieceParent) continue;
             if (drag.isPlaced) continue;
 
-            // Check if piece is far from its correct position
             float distance = Vector2.Distance(rect.anchoredPosition, drag.correctPosition);
-            
-            // If distance is more than 2 cells away, consider it incorrect
             if (distance > PuzzleManager.Instance.cellSize * 2f)
-            {
                 incorrectPieces.Add(piece);
-            }
         }
-
         return incorrectPieces;
     }
 
@@ -471,10 +407,8 @@ public class PowerUpButtons : MonoBehaviour
         {
             DragPiece drag = piece.GetComponent<DragPiece>();
             RectTransform rect = piece.GetComponent<RectTransform>();
-            
             if (drag == null || rect == null) continue;
 
-            // Separate from group
             if (piece.group != null && piece.group.pieces.Count > 1)
             {
                 piece.group.pieces.Remove(piece);
@@ -482,7 +416,6 @@ public class PowerUpButtons : MonoBehaviour
                 piece.group.AddPiece(piece);
             }
 
-            // Shrink animation
             Sequence eraseSeq = DOTween.Sequence();
             eraseSeq.Append(rect.DOScale(0.1f, eraseAnimationDuration).SetEase(Ease.InBack));
             
@@ -492,65 +425,44 @@ public class PowerUpButtons : MonoBehaviour
 
             yield return eraseSeq.WaitForCompletion();
 
-            // Reset piece properties
             rect.localScale = Vector3.one;
             cg.alpha = 1f;
             drag.isPlaced = false;
             drag.canDrag = false;
             drag.ResetPiece();
 
-            // Send back to bottom panel
             PuzzleManager.Instance.MoveToBottom(piece.gameObject);
-            
             erasedCount++;
-            
             yield return new WaitForSeconds(eraseDelay);
         }
 
-        // Rearrange bottom panel after all pieces are returned
         yield return new WaitForSeconds(0.2f);
-        
-        // Note: You might need to add a public method in PuzzleManager for this
-        // or call RearrangeBottom via reflection/other means
-        
         isEraseActive = false;
-        Debug.Log($"🗑️ Erased {erasedCount} incorrect pieces back to bottom panel");
+        Debug.Log($"🗑️ Erased {erasedCount} incorrect pieces");
     }
 
     // ============================================
-    // UTILITY METHODS
+    // UTILITY
     // ============================================
     private void UpdateHintCountText()
     {
         if (hintCountText != null)
         {
             hintCountText.text = $"x{remainingHints}";
-            
-            if (remainingHints <= 0)
-            {
-                hintCountText.color = Color.red;
-            }
-            else
-            {
-                hintCountText.color = Color.white;
-            }
+            hintCountText.color = remainingHints <= 0 ? Color.red : Color.white;
         }
     }
 
     private void BounceButton(Button button)
     {
         if (button != null)
-        {
             button.transform.DOPunchScale(Vector3.one * scaleBounceAmount, scaleBounceDuration, 5, 0.5f);
-        }
     }
 
     private void ShakeButton(Button button)
     {
         if (button != null)
-        {
             button.transform.DOShakePosition(0.4f, 8f, 30);
-        }
     }
 
     private void HighlightButton(Button button)
@@ -558,10 +470,7 @@ public class PowerUpButtons : MonoBehaviour
         if (button != null)
         {
             Image btnImage = button.GetComponent<Image>();
-            if (btnImage != null)
-            {
-                btnImage.DOColor(activeButtonColor, 0.2f);
-            }
+            if (btnImage != null) btnImage.DOColor(activeButtonColor, 0.2f);
         }
     }
 
@@ -570,14 +479,10 @@ public class PowerUpButtons : MonoBehaviour
         if (button != null)
         {
             Image btnImage = button.GetComponent<Image>();
-            if (btnImage != null)
-            {
-                btnImage.DOColor(normalButtonColor, 0.2f);
-            }
+            if (btnImage != null) btnImage.DOColor(normalButtonColor, 0.2f);
         }
     }
 
-    // Public method to add hints (for rewards, ads, etc.)
     public void AddHints(int amount)
     {
         remainingHints += amount;
@@ -589,7 +494,5 @@ public class PowerUpButtons : MonoBehaviour
             hintCountText.DOColor(Color.green, 0.3f).OnComplete(() =>
                 hintCountText.DOColor(Color.white, 0.3f));
         }
-        
-        Debug.Log($"💡 Added {amount} hints! Total: {remainingHints}");
     }
 }
