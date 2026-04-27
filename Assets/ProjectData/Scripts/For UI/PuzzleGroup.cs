@@ -1,53 +1,123 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+[System.Serializable]
 public class PuzzleGroup
 {
     public List<PuzzlePiece> pieces = new List<PuzzlePiece>();
-
+    public PuzzlePiece anchorPiece;
+    
     public void AddPiece(PuzzlePiece piece)
     {
         if (!pieces.Contains(piece))
         {
-            if (piece.group != null && piece.group != this)
-            {
-                piece.group.pieces.Remove(piece);  // Remove from old group
-            }
             pieces.Add(piece);
-            piece.group = this;  // Point to new group
+            piece.group = this;
+            UpdateAnchor();
         }
     }
-    public void Merge(PuzzleGroup other)
+    
+    public void RemovePiece(PuzzlePiece piece)
     {
-        if (other == this) return;
-
-        // Copy the pieces before modifying
-        List<PuzzlePiece> piecesToAdd = new List<PuzzlePiece>(other.pieces);
-        
-        foreach (var p in piecesToAdd)
+        pieces.Remove(piece);
+        if (pieces.Count > 0)
+            UpdateAnchor();
+    }
+    
+    private void UpdateAnchor()
+    {
+        if (pieces.Count == 0)
         {
-            AddPiece(p);
+            anchorPiece = null;
+            return;
         }
         
-        // 🔥 Clear the old group so no pieces are left behind
-        other.pieces.Clear();
+        // Find piece with smallest row and col as anchor
+        anchorPiece = pieces[0];
+        foreach (var piece in pieces)
+        {
+            if (piece.row < anchorPiece.row || 
+                (piece.row == anchorPiece.row && piece.col < anchorPiece.col))
+            {
+                anchorPiece = piece;
+            }
+        }
     }
-
+    
     public void Move(Vector2 delta)
     {
-        foreach (var p in pieces)
+        foreach (var piece in pieces)
         {
-            if (p != null)
+            RectTransform rect = piece.GetComponent<RectTransform>();
+            if (rect != null)
             {
-                RectTransform rect = p.GetComponent<RectTransform>();
-                DragPiece drag = p.GetComponent<DragPiece>();
-                
-                // 🔥 Only move pieces in the puzzle area, not in bottom tray
-                if (rect != null && drag != null && !drag.isPlaced && rect.parent == PuzzleManager.Instance.pieceParent)
+                rect.anchoredPosition += delta;
+            }
+        }
+    }
+    
+    public void Merge(PuzzleGroup otherGroup)
+    {
+        if (otherGroup == this || otherGroup == null) return;
+        
+        // Add all pieces from other group
+        List<PuzzlePiece> otherPieces = new List<PuzzlePiece>(otherGroup.pieces);
+        foreach (var piece in otherPieces)
+        {
+            if (!pieces.Contains(piece))
+            {
+                pieces.Add(piece);
+                piece.group = this;
+            }
+        }
+        
+        // Update anchor after merge
+        UpdateAnchor();
+    }
+    
+    /// <summary>
+    /// Check if ANY piece in group is near its correct position
+    /// </summary>
+    public bool IsAnyPieceNearCorrectPosition(float threshold)
+    {
+        foreach (var piece in pieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            RectTransform rect = piece.GetComponent<RectTransform>();
+            
+            if (drag != null && rect != null)
+            {
+                float dist = Vector2.Distance(rect.anchoredPosition, drag.correctPosition);
+                if (dist <= threshold)
+                    return true;
+            }
+        }
+        return false;
+    }
+    
+    /// <summary>
+    /// Get the piece closest to its correct position
+    /// </summary>
+    public PuzzlePiece GetClosestToCorrectPosition()
+    {
+        PuzzlePiece closest = null;
+        float closestDist = float.MaxValue;
+        
+        foreach (var piece in pieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            RectTransform rect = piece.GetComponent<RectTransform>();
+            
+            if (drag != null && rect != null)
+            {
+                float dist = Vector2.Distance(rect.anchoredPosition, drag.correctPosition);
+                if (dist < closestDist)
                 {
-                    rect.anchoredPosition += delta;
+                    closestDist = dist;
+                    closest = piece;
                 }
             }
         }
+        return closest;
     }
 }
