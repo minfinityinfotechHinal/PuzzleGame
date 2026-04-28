@@ -800,7 +800,6 @@ GameObject:
   - component: {fileID: 249899751}
   - component: {fileID: 249899753}
   - component: {fileID: 249899752}
-  - component: {fileID: 249899754}
   m_Layer: 5
   m_Name: SlotParent
   m_TagString: Untagged
@@ -865,18 +864,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 249899750}
   m_CullTransparentMesh: 1
---- !u!114 &249899754
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 249899750}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 49bce23a8b99b49519e87103a0af187e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::GridGenerator
 --- !u!1 &259469338
 GameObject:
   m_ObjectHideFlags: 0
@@ -5342,9 +5329,10 @@ MonoBehaviour:
   shuffleDelay: 0.05
   shuffleEase: 6
   isShuffling: 0
-  referenceImagePanel: {fileID: 0}
-  referenceImage: {fileID: 0}
+  referenceImagePanel: {fileID: 726662051}
+  referenceImage: {fileID: 726662053}
   previewFadeDuration: 0.3
+  bottomPanel: {fileID: 1228281907}
   eraseAnimationDuration: 0.3
   eraseDelay: 0.08
   activeButtonColor: {r: 1, g: 0.85, b: 0.3, a: 1}

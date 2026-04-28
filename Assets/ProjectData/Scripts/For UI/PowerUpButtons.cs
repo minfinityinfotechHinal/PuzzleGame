@@ -33,6 +33,7 @@ public class PowerUpButtons : MonoBehaviour
     public Image referenceImage;
     public float previewFadeDuration = 0.3f;
     private bool isPreviewActive = false;
+    public GameObject bottomPanel;
 
     [Header("=== ERASE SYSTEM 🗑️ ===")]
     public float eraseAnimationDuration = 0.3f;
@@ -438,47 +439,64 @@ public class PowerUpButtons : MonoBehaviour
     // ============================================
     // 🧩 PREVIEW
     // ============================================
-    public void OnPreviewButtonClicked()
-    {
-        isPreviewActive = !isPreviewActive;
-        if (isPreviewActive)
-        {
-            ShowReferenceImage();
-            HighlightButton(previewButton);
-        }
-        else
-        {
-            HideReferenceImage();
-            ResetButtonColor(previewButton);
-        }
-        BounceButton(previewButton);
-    }
-
-    private void ShowReferenceImage()
-    {
-        if (referenceImagePanel == null) return;
-        referenceImagePanel.SetActive(true);
-        referenceImagePanel.transform.localScale = Vector3.zero;
-        referenceImagePanel.transform.DOScale(1f, previewFadeDuration).SetEase(Ease.OutBack);
         
-        CanvasGroup cg = referenceImagePanel.GetComponent<CanvasGroup>();
-        if (cg == null) cg = referenceImagePanel.AddComponent<CanvasGroup>();
-        cg.alpha = 0;
-        cg.DOFade(0.75f, previewFadeDuration);
-    }
+   // ============================================
+// 🧩 PREVIEW
+// ============================================
 
-    private void HideReferenceImage()
+public void OnPreviewButtonClicked()
+{
+    isPreviewActive = !isPreviewActive;
+    if (isPreviewActive)
     {
-        if (referenceImagePanel == null) return;
-        
-        CanvasGroup cg = referenceImagePanel.GetComponent<CanvasGroup>();
-        if (cg != null) cg.DOFade(0, previewFadeDuration * 0.5f);
-        
-        referenceImagePanel.transform.DOScale(0.8f, previewFadeDuration * 0.5f)
-            .SetEase(Ease.InBack)
-            .OnComplete(() => referenceImagePanel.SetActive(false));
+        ShowReferenceImage();
+        HideBottomPanel();
+        HighlightButton(previewButton);
     }
+    else
+    {
+        HideReferenceImage();
+        ShowBottomPanel();
+        ResetButtonColor(previewButton);
+    }
+    BounceButton(previewButton);
+}
 
+private void ShowReferenceImage()
+{
+    if (referenceImagePanel == null) return;
+    referenceImagePanel.SetActive(true);
+}
+
+private void HideReferenceImage()
+{
+    if (referenceImagePanel == null) return;
+    referenceImagePanel.SetActive(false);
+}
+
+private void HideBottomPanel()
+{
+    if (bottomPanel != null)
+    {
+        bottomPanel.SetActive(false);
+    }
+    else if (PuzzleManager.Instance != null && PuzzleManager.Instance.bottomParent != null)
+    {
+        PuzzleManager.Instance.bottomParent.gameObject.SetActive(false);
+    }
+}
+
+private void ShowBottomPanel()
+{
+    if (bottomPanel != null)
+    {
+        bottomPanel.SetActive(true);
+    }
+    else if (PuzzleManager.Instance != null && PuzzleManager.Instance.bottomParent != null)
+    {
+        PuzzleManager.Instance.bottomParent.gameObject.SetActive(true);
+    }
+}
     // ============================================
     // 🗑️ ERASE
     // ============================================
