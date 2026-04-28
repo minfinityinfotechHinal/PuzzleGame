@@ -44,8 +44,13 @@ public class PowerUpButtons : MonoBehaviour
     public Color normalButtonColor = Color.white;
     public float scaleBounceAmount = 0.2f;
     public float scaleBounceDuration = 0.3f;
+    public Vector3 buttonBaseScale = new Vector3(0.7f, 0.7f, 0.7f);
 
     private bool isEraseActive = false;
+
+
+    private bool isPreviewTransitioning = false;
+
 
     private void Awake()
     {
@@ -55,15 +60,17 @@ public class PowerUpButtons : MonoBehaviour
             Destroy(gameObject);
     }
 
-    private void Start()
-    {
-        remainingHints = maxHints;
-        InitializeAllButtons();
-        UpdateHintCountText();
-        
-        if (referenceImagePanel != null)
-            referenceImagePanel.SetActive(false);
-    }
+ private void Start()
+{
+    remainingHints = maxHints;
+    InitializeAllButtons();
+    UpdateHintCountText();
+    
+  
+    
+    if (referenceImagePanel != null)
+        referenceImagePanel.SetActive(false);
+}
 
     private void InitializeAllButtons()
     {
@@ -446,6 +453,10 @@ public class PowerUpButtons : MonoBehaviour
 
 public void OnPreviewButtonClicked()
 {
+    // Prevent multiple rapid clicks using simple flag instead of interactable
+    if (isPreviewTransitioning) return;
+    isPreviewTransitioning = true;
+    
     isPreviewActive = !isPreviewActive;
     if (isPreviewActive)
     {
@@ -460,6 +471,22 @@ public void OnPreviewButtonClicked()
         ResetButtonColor(previewButton);
     }
     BounceButton(previewButton);
+    
+    // Reset flag after animation completes
+    StartCoroutine(ResetPreviewTransitionFlag());
+}
+
+private IEnumerator ResetPreviewTransitionFlag()
+{
+    yield return new WaitForSeconds(0.3f); // Match scaleBounceDuration
+    isPreviewTransitioning = false;
+}
+
+private IEnumerator ReEnableButtonAfterDelay()
+{
+    yield return new WaitForSeconds(0.1f); // Small delay to prevent rapid clicks
+    if (previewButton != null)
+        previewButton.interactable = true;
 }
 
 private void ShowReferenceImage()
@@ -514,6 +541,16 @@ private void ShowBottomPanel()
         StartCoroutine(ErasePiecesCoroutine(piecesToErase));
         BounceButton(eraseButton);
     }
+
+    // If you want a subtle animation instead, use this:
+private void SubtleBounce(Button button)
+{
+    if (button != null)
+    {
+        button.transform.DOKill();
+        button.transform.DOPunchScale(Vector3.one * 0.1f, 0.2f, 2, 0.5f); // Much smaller scale
+    }
+}
 
     private List<PuzzlePiece> GetIncorrectPieces()
     {
@@ -656,35 +693,65 @@ private IEnumerator EraseSinglePieceAfterAnimation(PuzzlePiece piece, DragPiece 
         }
     }
 
-    private void BounceButton(Button button)
+private void BounceButton(Button button)
+{
+    if (button != null)
     {
-        if (button != null)
-            button.transform.DOPunchScale(Vector3.one * scaleBounceAmount, scaleBounceDuration, 5, 0.5f);
+        // Kill ALL previous tweens
+        button.transform.DOKill();
+        
+        // Reset to the configured base scale
+        button.transform.localScale = buttonBaseScale;
+        
+        // Apply punch - amount is relative to current scale
+        button.transform.DOPunchScale(
+            buttonBaseScale * scaleBounceAmount, 
+            scaleBounceDuration, 
+            5, 
+            0.5f
+        );
     }
+}
 
-    private void ShakeButton(Button button)
+private void ShakeButton(Button button)
+{
+    if (button != null)
     {
-        if (button != null)
-            button.transform.DOShakePosition(0.4f, 8f, 30);
+        // Kill ALL previous tweens
+        button.transform.DOKill();
+        
+        // Reset to the configured base scale
+        button.transform.localScale = buttonBaseScale;
+        
+        button.transform.DOShakePosition(0.4f, 8f, 30);
     }
+}
 
     private void HighlightButton(Button button)
+{
+    if (button != null)
     {
-        if (button != null)
+        Image btnImage = button.GetComponent<Image>();
+        if (btnImage != null)
         {
-            Image btnImage = button.GetComponent<Image>();
-            if (btnImage != null) btnImage.DOColor(activeButtonColor, 0.2f);
+            btnImage.DOKill(); // Kill any existing color tween
+            btnImage.DOColor(activeButtonColor, 0.2f);
         }
     }
+}
 
     private void ResetButtonColor(Button button)
+{
+    if (button != null)
     {
-        if (button != null)
+        Image btnImage = button.GetComponent<Image>();
+        if (btnImage != null)
         {
-            Image btnImage = button.GetComponent<Image>();
-            if (btnImage != null) btnImage.DOColor(normalButtonColor, 0.2f);
+            btnImage.DOKill(); // Kill any existing color tween
+            btnImage.DOColor(normalButtonColor, 0.2f);
         }
     }
+}
 
     public void AddHints(int amount)
     {
