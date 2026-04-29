@@ -314,7 +314,7 @@ public void RemoveFromDragOrder(DragPiece drag)
         DragPiece drag = piece.GetComponent<DragPiece>();
         if (drag != null)
         {
-            drag.canDrag = false;
+            drag.canDrag = true;
         }
         
         overflowQueue.Enqueue(piece);
@@ -554,7 +554,7 @@ public void RemoveFromDragOrder(DragPiece drag)
             DragPiece drag = obj.GetComponent<DragPiece>();
             if (drag != null)
             {
-                drag.canDrag = false;
+                drag.canDrag = true;
                 drag.correctPosition = rect.anchoredPosition;
                 drag.dragArea = dragArea;
             }
@@ -713,8 +713,8 @@ public void RemoveFromDragOrder(DragPiece drag)
     }
 
     rect.anchoredPosition = finalTarget;
-    rect.localScale = Vector3.zero; // Scale to 0 when hidden
-    piece.SetActive(false);
+    // rect.localScale = Vector3.zero; // Scale to 0 when hidden
+    // piece.SetActive(false);
 }
 
     int GetEmptySlot()
