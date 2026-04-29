@@ -187,44 +187,53 @@ public void UpdateDragOrder(DragPiece draggedPiece)
 }
 
 // Refresh all sorting orders based on drag order list
+// Refresh all sorting orders based on drag order list
+// Refresh all sorting orders based on drag order list
 public void RefreshSortingOrdersFromList()
 {
-    // Start from 1, increment by 2 each time (reserve next number for shadow)
-    int order = 1;
+    // Start from 0 for placed pieces (they go to the back)
+    int placedOrder = 0;
+    // Start from a high number for unplaced/dragged pieces (they go to the front)
+    int unplacedOrder = 1000;
     
-    // Pieces that were dragged recently get higher order
-    foreach (var drag in dragOrderList)
-    {
-        if (drag != null && !drag.isPlaced)
-        {
-            drag.SetPieceSortingOrder(order);
-            order += 2;  // Increment by 2 to leave space for shadow
-        }
-    }
+    Debug.Log($"=== REFRESHING ORDERS: {dragOrderList.Count} items in drag list ===");
     
-    // Then assign orders to placed pieces
+    // First, assign orders to PLACED pieces (lowest priority - behind everything)
     foreach (var piece in allPieces)
     {
         DragPiece drag = piece.GetComponent<DragPiece>();
         if (drag != null && drag.isPlaced && !dragOrderList.Contains(drag))
         {
-            drag.SetPieceSortingOrder(order);
-            order += 2;
+            drag.SetPieceSortingOrder(placedOrder);
+            Debug.Log($"  Set PLACED {drag.name} - piece order: {placedOrder}, shadow order: {placedOrder + 1}");
+            placedOrder += 2;
         }
     }
     
-    // Finally, any remaining unplaced pieces not in drag order
+    // Then, assign orders to UNPLACED pieces that are NOT in drag list (medium priority)
     foreach (var piece in allPieces)
     {
         DragPiece drag = piece.GetComponent<DragPiece>();
         if (drag != null && !drag.isPlaced && !dragOrderList.Contains(drag))
         {
-            drag.SetPieceSortingOrder(order);
-            order += 2;
+            drag.SetPieceSortingOrder(unplacedOrder);
+            Debug.Log($"  Set UNPLACED (static) {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
+            unplacedOrder += 2;
         }
     }
     
-    Debug.Log($"📊 Updated sorting orders (last order: {order-1})");
+    // Finally, assign orders to DRAGGED pieces (highest priority - on top)
+    foreach (var drag in dragOrderList)
+    {
+        if (drag != null && !drag.isPlaced)
+        {
+            drag.SetPieceSortingOrder(unplacedOrder);
+            Debug.Log($"  Set DRAGGED {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
+            unplacedOrder += 2;
+        }
+    }
+    
+    Debug.Log($"📊 Updated sorting orders - Placed range: 0-{placedOrder-1}, Unplaced range: 1000-{unplacedOrder-1}");
 }
 
 // Remove from drag order when piece is placed
@@ -340,8 +349,18 @@ public void RemoveFromDragOrder(DragPiece drag)
     
     placedCount += newlyPlaced;
     
-    // Update sorting order based on grid positions
-    UpdateAllPiecesSortingOrder();
+    // Remove these pieces from drag order list
+    foreach (var p in placedPieces)
+    {
+        DragPiece drag = p.GetComponent<DragPiece>();
+        if (drag != null && dragOrderList.Contains(drag))
+        {
+            dragOrderList.Remove(drag);
+        }
+    }
+    
+    // Refresh sorting orders (this will put placed pieces at low orders)
+    RefreshSortingOrdersFromList();
     
     Debug.Log($"📊 Placed: {placedCount}/{totalPieces} (newly placed: {newlyPlaced})");
     

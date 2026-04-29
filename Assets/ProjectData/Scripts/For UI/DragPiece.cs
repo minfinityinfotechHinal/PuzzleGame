@@ -179,6 +179,8 @@ public void SetPieceSortingOrder(int baseOrder)
         shadowCanvas.overrideSorting = true;
         shadowCanvas.sortingOrder = shadowOrder;
     }
+    
+    Debug.Log($"🎨 {gameObject.name} - Piece order: {pieceOrder}, Shadow order: {shadowOrder}");
 }
 
     // Add this new method to DragPiece.cs
