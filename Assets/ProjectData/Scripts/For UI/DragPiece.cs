@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI; 
 
 public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -19,11 +20,13 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public GameObject ghostImage;
     public GameObject particleObject;
 
-    private PuzzlePiece piece;
+    public PuzzlePiece piece;
     private bool isMerging = false;
     
     private float mergeCooldown = 0.1f;
     private float lastMergeTime = -1f;
+     private int originalSiblingIndex;
+    private CanvasGroup shadowCanvasGroup;
 
     private void Awake()
     {
@@ -31,24 +34,48 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         rectTransform = GetComponent<RectTransform>();
         canvas = GetComponentInParent<Canvas>();
         canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        
+        // Find shadow's Canvas component if it exists
+        if (piece != null && piece.shadowImage != null)
+        {
+            shadowCanvasGroup = piece.shadowImage.GetComponent<CanvasGroup>();
+            if (shadowCanvasGroup == null)
+                shadowCanvasGroup = piece.shadowImage.gameObject.AddComponent<CanvasGroup>();
+        }
 
         if (ghostImage != null) ghostImage.SetActive(false);
         if (particleObject != null) particleObject.SetActive(false);
     }
 
+
     public void OnBeginDrag(PointerEventData eventData)
+{
+    if (isPlaced || !canDrag) return;
+
+    // Update drag order - this piece becomes the latest dragged
+    if (PuzzleManager.Instance != null)
     {
-        if (isPlaced || !canDrag) return;
-
-        canvasGroup.blocksRaycasts = false;
-
-        if (PuzzleManager.Instance != null)
-            PuzzleManager.Instance.RemoveFromBottom(gameObject);
-
-        transform.SetParent(PuzzleManager.Instance.pieceParent, true);
-        transform.SetAsLastSibling();
+        // Check if we're dragging a group
+        if (piece.group != null && piece.group.pieces.Count > 1)
+        {
+            // Bring entire group to front
+            PuzzleManager.Instance.BringGroupToFront(piece.group);
+        }
+        else
+        {
+            // Single piece
+            PuzzleManager.Instance.UpdateDragOrder(this);
+        }
     }
 
+    canvasGroup.blocksRaycasts = false;
+
+    if (PuzzleManager.Instance != null)
+        PuzzleManager.Instance.RemoveFromBottom(gameObject);
+
+    transform.SetParent(PuzzleManager.Instance.pieceParent, true);
+    transform.SetAsLastSibling();
+}
     public void OnDrag(PointerEventData eventData)
     {
         if (isPlaced || !canDrag) return;
@@ -120,53 +147,126 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             }
         }
     }
-
-    public void OnEndDrag(PointerEventData eventData)
+public void SetPieceSortingOrder(int baseOrder)
+{
+    // Use baseOrder for piece, baseOrder+1 for shadow
+    int pieceOrder = baseOrder;
+    int shadowOrder = baseOrder + 1;
+    
+    // Set main piece sorting
+    Canvas mainCanvas = GetComponent<Canvas>();
+    if (mainCanvas == null)
     {
-        if (isPlaced || !canDrag) return;
-
-        canvasGroup.blocksRaycasts = true;
-        ghostImage?.SetActive(false);
-
-        // Check if the reference piece itself is near its correct position
-        float distance = Vector2.Distance(rectTransform.anchoredPosition, correctPosition);
-
-        if (distance <= snapThreshold)
+        mainCanvas = gameObject.AddComponent<Canvas>();
+        
+        GraphicRaycaster graphicRaycaster = GetComponent<GraphicRaycaster>();
+        if (graphicRaycaster == null)
         {
-            Debug.Log($"✅ CORRECT DROP: {gameObject.name} (distance: {distance:F1})");
-            if (particleObject != null) particleObject.SetActive(true);
-            StartCoroutine(SmoothSnapToCorrectPositions());
-            return;
+            graphicRaycaster = gameObject.AddComponent<GraphicRaycaster>();
         }
-
-        // Check if ANY piece in group is near its correct position
-        if (piece.group != null && piece.group.pieces.Count > 1)
+    }
+    mainCanvas.overrideSorting = true;
+    mainCanvas.sortingOrder = pieceOrder;
+    
+    // Set shadow sorting to NEXT number
+    if (piece != null && piece.shadowImage != null)
+    {
+        Canvas shadowCanvas = piece.shadowImage.GetComponent<Canvas>();
+        if (shadowCanvas == null)
         {
-            PuzzlePiece closestPiece = piece.group.GetClosestToCorrectPosition();
-            if (closestPiece != null)
+            shadowCanvas = piece.shadowImage.gameObject.AddComponent<Canvas>();
+        }
+        shadowCanvas.overrideSorting = true;
+        shadowCanvas.sortingOrder = shadowOrder;
+    }
+}
+
+    // Add this new method to DragPiece.cs
+// Add this method to DragPiece.cs
+public void BringPlacedPieceToFront()
+{
+    if (piece == null || piece.group == null) return;
+    
+    // Find the highest sorting order among ALL pieces
+    int maxOrder = 0;
+    foreach (var p in PuzzleManager.Instance.allPieces)
+    {
+        if (p != null)
+        {
+            Canvas pieceCanvas = p.GetComponent<Canvas>();
+            if (pieceCanvas != null && pieceCanvas.overrideSorting)
             {
-                DragPiece closestDrag = closestPiece.GetComponent<DragPiece>();
-                RectTransform closestRect = closestPiece.GetComponent<RectTransform>();
+                maxOrder = Mathf.Max(maxOrder, pieceCanvas.sortingOrder);
+            }
+        }
+    }
+    
+    // Set this group to be on top (highest order)
+    int newOrder = maxOrder + 1;
+    
+    foreach (var p in piece.group.pieces)
+    {
+        DragPiece drag = p.GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.SetPieceSortingOrder(newOrder);
+        }
+    }
+    
+    Debug.Log($"✨ Brought group to front with order {newOrder}");
+}
+    public void OnEndDrag(PointerEventData eventData)
+{
+    if (isPlaced || !canDrag) return;
+    
+    canvasGroup.blocksRaycasts = true;
+    ghostImage?.SetActive(false);
+
+    // Check if the reference piece itself is near its correct position
+    float distance = Vector2.Distance(rectTransform.anchoredPosition, correctPosition);
+
+    if (distance <= snapThreshold)
+    {
+        Debug.Log($"✅ CORRECT DROP: {gameObject.name} (distance: {distance:F1})");
+        if (particleObject != null) particleObject.SetActive(true);
+        StartCoroutine(SmoothSnapToCorrectPositions());
+        return;
+    }
+
+    // Check if ANY piece in group is near its correct position
+    if (piece.group != null && piece.group.pieces.Count > 1)
+    {
+        PuzzlePiece closestPiece = piece.group.GetClosestToCorrectPosition();
+        if (closestPiece != null)
+        {
+            DragPiece closestDrag = closestPiece.GetComponent<DragPiece>();
+            RectTransform closestRect = closestPiece.GetComponent<RectTransform>();
+            
+            if (closestDrag != null && closestRect != null)
+            {
+                float closestDist = Vector2.Distance(closestRect.anchoredPosition, closestDrag.correctPosition);
                 
-                if (closestDrag != null && closestRect != null)
+                if (closestDist <= snapThreshold)
                 {
-                    float closestDist = Vector2.Distance(closestRect.anchoredPosition, closestDrag.correctPosition);
-                    
-                    if (closestDist <= snapThreshold)
-                    {
-                        Debug.Log($"✅ CORRECT DROP via group: {closestPiece.name} (distance: {closestDist:F1})");
-                        piece = closestPiece; // Use closest piece as reference
-                        if (particleObject != null) particleObject.SetActive(true);
-                        StartCoroutine(SmoothSnapToCorrectPositions());
-                        return;
-                    }
+                    Debug.Log($"✅ CORRECT DROP via group: {closestPiece.name} (distance: {closestDist:F1})");
+                    piece = closestPiece;
+                    if (particleObject != null) particleObject.SetActive(true);
+                    StartCoroutine(SmoothSnapToCorrectPositions());
+                    return;
                 }
             }
         }
-
-        // If not near correct position, check for merge with neighbors
-        CheckForMerge();
     }
+
+    // If not near correct position, check for merge with neighbors
+    CheckForMerge();
+    
+    // Refresh orders after drag ends (in case no snap/merge happened)
+    if (PuzzleManager.Instance != null)
+    {
+        PuzzleManager.Instance.RefreshSortingOrdersFromList();
+    }
+}
 
     private void CheckForMerge()
     {
@@ -303,6 +403,12 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 
                 Debug.Log($"🔗 Merged! Group now has {myGroup.pieces.Count} pieces.");
                 
+                // 👇 ADD THIS: Bring the merged group to front
+                if (PuzzleManager.Instance != null)
+                {
+                    PuzzleManager.Instance.BringGroupToFront(myGroup);
+                }
+                
                 // Check if group should snap after merge
                 CheckGroupSnapAfterMerge(myGroup);
             }
@@ -354,100 +460,106 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     /// <summary>
     /// NEW: Only snaps pieces that are actually near their individual correct positions
     /// </summary>
+    /// 
     IEnumerator SmoothSnapToCorrectPositions()
+{
+    if (piece == null || piece.group == null) yield break;
+    
+    // Collect pieces that need to snap - each to their OWN correct position
+    Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
+    Dictionary<PuzzlePiece, Vector2> targetPositions = new Dictionary<PuzzlePiece, Vector2>();
+    List<PuzzlePiece> piecesToSnap = new List<PuzzlePiece>();
+    
+    foreach (var p in piece.group.pieces)
     {
-        if (piece == null || piece.group == null) yield break;
+        DragPiece drag = p.GetComponent<DragPiece>();
+        RectTransform r = p.GetComponent<RectTransform>();
         
-        // Collect pieces that need to snap - each to their OWN correct position
-        Dictionary<PuzzlePiece, Vector2> startPositions = new Dictionary<PuzzlePiece, Vector2>();
-        Dictionary<PuzzlePiece, Vector2> targetPositions = new Dictionary<PuzzlePiece, Vector2>();
-        List<PuzzlePiece> piecesToSnap = new List<PuzzlePiece>();
-        
-        foreach (var p in piece.group.pieces)
+        if (drag != null && r != null && !drag.isPlaced && r.parent == PuzzleManager.Instance.pieceParent)
         {
-            DragPiece drag = p.GetComponent<DragPiece>();
-            RectTransform r = p.GetComponent<RectTransform>();
+            float dist = Vector2.Distance(r.anchoredPosition, drag.correctPosition);
             
-            if (drag != null && r != null && !drag.isPlaced && r.parent == PuzzleManager.Instance.pieceParent)
+            // ONLY snap if this specific piece is within threshold
+            if (dist <= snapThreshold)
             {
-                float dist = Vector2.Distance(r.anchoredPosition, drag.correctPosition);
+                startPositions[p] = r.anchoredPosition;
+                targetPositions[p] = drag.correctPosition;
+                piecesToSnap.Add(p);
                 
-                // ONLY snap if this specific piece is within threshold
-                if (dist <= snapThreshold)
-                {
-                    startPositions[p] = r.anchoredPosition;
-                    targetPositions[p] = drag.correctPosition; // Each piece goes to ITS OWN correct position
-                    piecesToSnap.Add(p);
-                    
-                    Debug.Log($"🎯 Will snap {p.name}: from {r.anchoredPosition} to {drag.correctPosition} (dist: {dist:F1})");
-                }
-                else
-                {
-                    Debug.Log($"⚠️ Skipping {p.name}: too far from correct position (dist: {dist:F1} > threshold: {snapThreshold})");
-                }
+                Debug.Log($"🎯 Will snap {p.name}: from {r.anchoredPosition} to {drag.correctPosition} (dist: {dist:F1})");
             }
-        }
-        
-        if (piecesToSnap.Count == 0)
-        {
-            Debug.Log($"❌ No pieces within snap threshold - aborting snap");
-            yield break;
-        }
-        
-        Debug.Log($"🎯 Snapping {piecesToSnap.Count} pieces to their individual correct positions");
-        
-        // Smooth animation
-        float duration = 0.35f;
-        float t = 0f;
-        
-        while (t < 1f)
-        {
-            t += Time.deltaTime / duration;
-            float progress = t * t * (3f - 2f * t); // Smoothstep
-            
-            foreach (var p in piecesToSnap)
+            else
             {
-                RectTransform r = p.GetComponent<RectTransform>();
-                if (r != null && startPositions.ContainsKey(p) && targetPositions.ContainsKey(p))
-                {
-                    r.anchoredPosition = Vector2.Lerp(startPositions[p], targetPositions[p], progress);
-                }
+                Debug.Log($"⚠️ Skipping {p.name}: too far from correct position (dist: {dist:F1} > threshold: {snapThreshold})");
             }
-            yield return null;
         }
+    }
+    
+    if (piecesToSnap.Count == 0)
+    {
+        Debug.Log($"❌ No pieces within snap threshold - aborting snap");
+        yield break;
+    }
+    
+    Debug.Log($"🎯 Snapping {piecesToSnap.Count} pieces to their individual correct positions");
+    
+    // Smooth animation
+    float duration = 0.35f;
+    float t = 0f;
+    
+    while (t < 1f)
+    {
+        t += Time.deltaTime / duration;
+        float progress = t * t * (3f - 2f * t); // Smoothstep
         
-        // Set final positions exactly
         foreach (var p in piecesToSnap)
         {
             RectTransform r = p.GetComponent<RectTransform>();
-            if (r != null && targetPositions.ContainsKey(p))
+            if (r != null && startPositions.ContainsKey(p) && targetPositions.ContainsKey(p))
             {
-                r.anchoredPosition = targetPositions[p];
-            }
-            
-            DragPiece drag = p.GetComponent<DragPiece>();
-            if (drag != null)
-            {
-                drag.isPlaced = true;
-                drag.canDrag = false;
-                
-                if (drag.canvasGroup != null)
-                {
-                    drag.canvasGroup.blocksRaycasts = false;
-                    drag.canvasGroup.alpha = 1f;
-                }
+                r.anchoredPosition = Vector2.Lerp(startPositions[p], targetPositions[p], progress);
             }
         }
-        
-        if (PuzzleManager.Instance != null)
-        {
-            PuzzleManager.Instance.OnGroupPlaced(piecesToSnap);
-            CheckCompletion();
-        }
-        
-        Debug.Log($"✅ Snapped {piecesToSnap.Count} pieces to their correct positions");
+        yield return null;
     }
-
+    
+    // Set final positions exactly
+    foreach (var p in piecesToSnap)
+    {
+        RectTransform r = p.GetComponent<RectTransform>();
+        if (r != null && targetPositions.ContainsKey(p))
+        {
+            r.anchoredPosition = targetPositions[p];
+        }
+        
+        DragPiece drag = p.GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.isPlaced = true;
+            drag.canDrag = false;
+            
+            if (drag.canvasGroup != null)
+            {
+                drag.canvasGroup.blocksRaycasts = false;
+                drag.canvasGroup.alpha = 1f;
+            }
+        }
+    }
+    
+    // Remove this piece from drag order list since it's now placed
+    if (PuzzleManager.Instance != null)
+    {
+        PuzzleManager.Instance.RemoveFromDragOrder(this);
+    }
+    
+    if (PuzzleManager.Instance != null)
+    {
+        PuzzleManager.Instance.OnGroupPlaced(piecesToSnap);
+        CheckCompletion();
+    }
+    
+    Debug.Log($"✅ Snapped {piecesToSnap.Count} pieces to their correct positions");
+}
     // Keep old SmoothSnap for backward compatibility if needed
     IEnumerator SmoothSnap()
     {

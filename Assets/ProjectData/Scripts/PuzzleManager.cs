@@ -72,6 +72,11 @@ public class PuzzleManager : MonoBehaviour
 
     // Public property for totalPieces (alternative if you want to keep totalPieces private)
     public int TotalPieces => totalPieces;
+    private List<DragPiece> dragOrderList = new List<DragPiece>();
+
+    private List<PuzzleGroup> draggedGroups = new List<PuzzleGroup>();
+
+
 
     // --------------------------------------------------
     void Awake()
@@ -133,6 +138,128 @@ public class PuzzleManager : MonoBehaviour
 
         InitLevel();
     }
+
+public void UpdateDragOrder(DragPiece draggedPiece)
+{
+    // Check if this piece belongs to a group
+    PuzzleGroup currentGroup = draggedPiece.piece.group;
+    
+    // If group has multiple pieces, handle the entire group
+    if (currentGroup != null && currentGroup.pieces.Count > 1)
+    {
+        // Remove all pieces in this group from drag list
+        foreach (var piece in currentGroup.pieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null && dragOrderList.Contains(drag))
+            {
+                dragOrderList.Remove(drag);
+            }
+        }
+        
+        // Add ALL pieces in the group to the end (same order)
+        foreach (var piece in currentGroup.pieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null && !drag.isPlaced)
+            {
+                dragOrderList.Add(drag);
+            }
+        }
+        
+        // Track that this group was dragged as a unit
+        if (!draggedGroups.Contains(currentGroup))
+        {
+            draggedGroups.Add(currentGroup);
+        }
+    }
+    else
+    {
+        // Single piece - handle normally
+        if (dragOrderList.Contains(draggedPiece))
+            dragOrderList.Remove(draggedPiece);
+        
+        dragOrderList.Add(draggedPiece);
+    }
+    
+    // Update ALL sorting orders based on list position
+    RefreshSortingOrdersFromList();
+}
+
+// Refresh all sorting orders based on drag order list
+public void RefreshSortingOrdersFromList()
+{
+    // Start from 1, increment by 2 each time (reserve next number for shadow)
+    int order = 1;
+    
+    // Pieces that were dragged recently get higher order
+    foreach (var drag in dragOrderList)
+    {
+        if (drag != null && !drag.isPlaced)
+        {
+            drag.SetPieceSortingOrder(order);
+            order += 2;  // Increment by 2 to leave space for shadow
+        }
+    }
+    
+    // Then assign orders to placed pieces
+    foreach (var piece in allPieces)
+    {
+        DragPiece drag = piece.GetComponent<DragPiece>();
+        if (drag != null && drag.isPlaced && !dragOrderList.Contains(drag))
+        {
+            drag.SetPieceSortingOrder(order);
+            order += 2;
+        }
+    }
+    
+    // Finally, any remaining unplaced pieces not in drag order
+    foreach (var piece in allPieces)
+    {
+        DragPiece drag = piece.GetComponent<DragPiece>();
+        if (drag != null && !drag.isPlaced && !dragOrderList.Contains(drag))
+        {
+            drag.SetPieceSortingOrder(order);
+            order += 2;
+        }
+    }
+    
+    Debug.Log($"📊 Updated sorting orders (last order: {order-1})");
+}
+
+// Remove from drag order when piece is placed
+public void RemoveFromDragOrder(DragPiece drag)
+{
+    if (dragOrderList.Contains(drag))
+    {
+        dragOrderList.Remove(drag);
+        
+        // Also remove from group tracking if group is fully placed
+        if (drag.piece != null && drag.piece.group != null)
+        {
+            PuzzleGroup group = drag.piece.group;
+            bool allPlaced = true;
+            
+            foreach (var piece in group.pieces)
+            {
+                DragPiece groupDrag = piece.GetComponent<DragPiece>();
+                if (groupDrag != null && !groupDrag.isPlaced)
+                {
+                    allPlaced = false;
+                    break;
+                }
+            }
+            
+            if (allPlaced && draggedGroups.Contains(group))
+            {
+                draggedGroups.Remove(group);
+            }
+        }
+        
+        RefreshSortingOrdersFromList();
+    }
+}
+
 
     // Add this method to PuzzleManager class
     // Add this public method to your PuzzleManager class
@@ -199,28 +326,28 @@ public class PuzzleManager : MonoBehaviour
 }
 
     public void OnGroupPlaced(List<PuzzlePiece> placedPieces)
+{
+    int newlyPlaced = 0;
+    
+    foreach (var p in placedPieces)
     {
-        int newlyPlaced = 0;
-        
-        foreach (var p in placedPieces)
+        if (!placedPiecesSet.Contains(p))
         {
-            if (!placedPiecesSet.Contains(p))
-            {
-                placedPiecesSet.Add(p);
-                newlyPlaced++;
-            }
+            placedPiecesSet.Add(p);
+            newlyPlaced++;
         }
-        
-        placedCount += newlyPlaced;
-        
-        // Update sorting order to prevent overlap issues
-        UpdatePiecesSortingOrder();
-        
-        Debug.Log($"📊 Placed: {placedCount}/{totalPieces} (newly placed: {newlyPlaced})");
-        
-        if (placedCount >= totalPieces)
-            OnPuzzleComplete();
     }
+    
+    placedCount += newlyPlaced;
+    
+    // Update sorting order based on grid positions
+    UpdateAllPiecesSortingOrder();
+    
+    Debug.Log($"📊 Placed: {placedCount}/{totalPieces} (newly placed: {newlyPlaced})");
+    
+    if (placedCount >= totalPieces)
+        OnPuzzleComplete();
+}
 
     public void UpdatePiecesSortingOrder()
     {
@@ -595,6 +722,99 @@ public class PuzzleManager : MonoBehaviour
         
         if (placedCount >= totalPieces)
             OnPuzzleComplete();
+    }
+
+    // Call this after any group placement or merge
+    public void UpdateAllPiecesSortingOrder()
+    {
+        // Create a list of all pieces and sort by grid position
+        List<PuzzlePiece> sortedPieces = new List<PuzzlePiece>(allPieces);
+        
+        // Sort: top to bottom, then left to right
+        // Pieces in higher rows (smaller row number) should be rendered BEHIND
+        sortedPieces.Sort((a, b) => 
+        {
+            if (a.row == b.row)
+                return a.col.CompareTo(b.col);  // Left to right
+            return a.row.CompareTo(b.row);       // Top to bottom
+        });
+        
+        // Assign sorting orders based on grid position
+        int order = 0;
+        foreach (var piece in sortedPieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null)
+            {
+                // Base order on position (top rows get lower numbers = behind)
+                drag.SetPieceSortingOrder(order);
+                order++;
+            }
+        }
+        
+        Debug.Log($"📊 Updated sorting order for {sortedPieces.Count} pieces");
+    }
+
+    // For groups, bring the entire group to front when dragged/placed
+    // Get the highest order for a group (so all pieces in group have same or sequential order)
+    public void BringGroupToFront(PuzzleGroup group)
+    {
+        if (group == null || group.pieces.Count == 0) return;
+        
+        // Remove all pieces in group from drag list
+        foreach (var piece in group.pieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null && dragOrderList.Contains(drag))
+            {
+                dragOrderList.Remove(drag);
+            }
+        }
+        
+        // Add all pieces in group to the end
+        foreach (var piece in group.pieces)
+        {
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            if (drag != null && !drag.isPlaced)
+            {
+                dragOrderList.Add(drag);
+            }
+        }
+        
+        // Refresh orders
+        RefreshSortingOrdersFromList();
+    }
+
+    // Add to PuzzleManager.cs
+    public void ResetAllSortingOrders()
+    {
+        int order = 0;
+        foreach (var piece in allPieces)
+        {
+            if (piece != null)
+            {
+                DragPiece drag = piece.GetComponent<DragPiece>();
+                if (drag != null && drag.isPlaced)
+                {
+                    drag.SetPieceSortingOrder(order);
+                    order++;
+                }
+            }
+        }
+        
+        // Then handle unplaced pieces
+        foreach (var piece in allPieces)
+        {
+            if (piece != null)
+            {
+                DragPiece drag = piece.GetComponent<DragPiece>();
+                if (drag != null && !drag.isPlaced)
+                {
+                    drag.SetPieceSortingOrder(order);
+                    order++;
+                }
+            }
+        }
     }
 
     // ADD THIS METHOD FOR COMPLETION CHECK FROM DRAGPIECE
