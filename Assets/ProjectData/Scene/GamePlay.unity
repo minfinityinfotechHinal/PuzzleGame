@@ -292,6 +292,8 @@ MonoBehaviour:
   cellSize: 100
   completionCanvas: {fileID: 0}
   scrollRect: {fileID: 1798704157}
+  bottomPanel: {fileID: 931934448}
+  dragParent: {fileID: 41782810}
 --- !u!114 &24558424
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1258,10 +1260,10 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 476196174}
+  - {fileID: 435320936}
   - {fileID: 1228281908}
   - {fileID: 1554109679}
   - {fileID: 1799224728}
-  - {fileID: 435320936}
   m_Father: {fileID: 1227865020}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -2761,6 +2763,8 @@ MonoBehaviour:
   cellSize: 100
   completionCanvas: {fileID: 0}
   scrollRect: {fileID: 0}
+  bottomPanel: {fileID: 0}
+  dragParent: {fileID: 0}
 --- !u!1 &983771659
 GameObject:
   m_ObjectHideFlags: 0
