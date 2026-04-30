@@ -155,6 +155,9 @@ MonoBehaviour:
   maskImage: {fileID: 6192569746006613634}
   contentImage: {fileID: 7458406350309938660}
   shadowImage: {fileID: 2992138458515763444}
+  group:
+    pieces: []
+    anchorPiece: {fileID: 0}
   row: 0
   col: 0
   left: {fileID: 0}
@@ -174,13 +177,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DragPiece
   isPlaced: 0
+  canvasGroup: {fileID: 0}
   snapThreshold: 50
   canDrag: 0
   dragArea: {fileID: 0}
   correctPosition: {x: 0, y: 0}
   ghostImage: {fileID: 0}
   particleObject: {fileID: 418702335692017193}
-  jigsawTabOverlap: 10
+  piece: {fileID: 0}
+  scrollRect: {fileID: 0}
+  directionThreshold: 20
 --- !u!1 &3475261597899271941
 GameObject:
   m_ObjectHideFlags: 0

@@ -76,7 +76,7 @@ public class PuzzleManager : MonoBehaviour
 
     private List<PuzzleGroup> draggedGroups = new List<PuzzleGroup>();
 
-
+    [SerializeField] public ScrollRect scrollRect;
 
     // --------------------------------------------------
     void Awake()

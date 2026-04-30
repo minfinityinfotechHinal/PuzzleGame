@@ -22,7 +22,7 @@ public class PuzzlePiece : MonoBehaviour
 
     public void Setup(int index)
     {
-        stencilID = index + 1;
+        stencilID = index + 2;
 
         ApplyMaterial(maskImage, ref maskMat);
         ApplyMaterial(contentImage, ref contentMat);
