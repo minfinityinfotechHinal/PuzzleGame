@@ -244,7 +244,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         
         dragStartPosition = eventData.position;
         dragInitiated = false;
-        // ✅ Store the actual anchored position relative to its parent
         originalAnchoredPosition = rectTransform.anchoredPosition;
         originalParent = transform.parent;
         pieceTakenFromScrollView = IsInsideScrollView();
@@ -297,49 +296,62 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             Debug.Log($"[{gameObject.name}] BeginDrag - Offset: {dragOffset}");
     }
     
-   public void OnDrag(PointerEventData eventData)
-{
-    if (isPlaced || !canDrag || !dragInitiated) return;
-
-    Vector2 totalDelta = eventData.position - dragStartPosition;
-
-    if (!directionLocked)
+    public void OnDrag(PointerEventData eventData)
     {
-        if (totalDelta.magnitude >= directionThreshold)
+        if (isPlaced || !canDrag || !dragInitiated) return;
+
+        Vector2 totalDelta = eventData.position - dragStartPosition;
+
+        if (!directionLocked)
         {
-            // Check if piece is in the scroll view (bottom panel)
-            if (pieceTakenFromScrollView && IsInsideBottomPanel())
+            if (totalDelta.magnitude >= directionThreshold)
             {
-                float absX = Mathf.Abs(totalDelta.x);
-                float absY = Mathf.Abs(totalDelta.y);
-                
-                // If horizontal movement is dominant, it's a scroll
-                if (absX > absY)
+                // Check if piece is in the scroll view (bottom panel)
+                if (pieceTakenFromScrollView && IsInsideBottomPanel())
                 {
-                    isScrolling = true;
-                    isDraggingPiece = false;
-                    lockedIsHorizontal = true;
-                    directionLocked = true;
+                    float absX = Mathf.Abs(totalDelta.x);
+                    float absY = Mathf.Abs(totalDelta.y);
                     
-                    canvasGroup.blocksRaycasts = false;
-                    
-                    if (scrollRect != null)
+                    // If horizontal movement is dominant, it's a scroll
+                    if (absX > absY)
                     {
-                        scrollRect.enabled = true;
-                        scrollRect.horizontal = true;
-                        scrollRect.vertical = false;
+                        isScrolling = true;
+                        isDraggingPiece = false;
+                        lockedIsHorizontal = true;
+                        directionLocked = true;
                         
-                        if (!scrollDragStarted)
+                        canvasGroup.blocksRaycasts = false;
+                        
+                        if (scrollRect != null)
                         {
-                            scrollRect.OnBeginDrag(eventData);
-                            scrollDragStarted = true;
+                            scrollRect.enabled = true;
+                            scrollRect.horizontal = true;
+                            scrollRect.vertical = false;
+                            
+                            if (!scrollDragStarted)
+                            {
+                                scrollRect.OnBeginDrag(eventData);
+                                scrollDragStarted = true;
+                            }
                         }
+                        
+                        if (enableDebugLogs)
+                            Debug.Log($"[{gameObject.name}] Started Horizontal Scroll (absX:{absX:F1} > absY:{absY:F1})");
                     }
-                    
-                    if (enableDebugLogs)
-                        Debug.Log($"[{gameObject.name}] Started Horizontal Scroll (absX:{absX:F1} > absY:{absY:F1})");
+                    // If vertical movement is dominant, start dragging the piece
+                    else
+                    {
+                        isDraggingPiece = true;
+                        isScrolling = false;
+                        directionLocked = true;
+                        
+                        canvasGroup.blocksRaycasts = true;
+                        
+                        if (enableDebugLogs)
+                            Debug.Log($"[{gameObject.name}] Started Vertical Piece Drag (absY:{absY:F1} > absX:{absX:F1})");
+                    }
                 }
-                // If vertical movement is dominant, start dragging the piece
+                // Piece is already outside bottom panel or was never in scroll view - free drag
                 else
                 {
                     isDraggingPiece = true;
@@ -349,106 +361,92 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                     canvasGroup.blocksRaycasts = true;
                     
                     if (enableDebugLogs)
-                        Debug.Log($"[{gameObject.name}] Started Vertical Piece Drag (absY:{absY:F1} > absX:{absX:F1})");
+                        Debug.Log($"[{gameObject.name}] Started Free Drag (Outside Bottom Panel)");
                 }
             }
-            // Piece is already outside bottom panel or was never in scroll view - free drag
             else
             {
-                isDraggingPiece = true;
-                isScrolling = false;
-                directionLocked = true;
-                
-                canvasGroup.blocksRaycasts = true;
-                
-                if (enableDebugLogs)
-                    Debug.Log($"[{gameObject.name}] Started Free Drag (Outside Bottom Panel)");
+                // Haven't reached threshold yet, pass to scrollRect if in scroll view
+                if (pieceTakenFromScrollView && scrollRect != null && IsInsideBottomPanel())
+                {
+                    scrollRect.OnDrag(eventData);
+                }
+                return;
             }
         }
-        else
+
+        // ================= SCROLL (Horizontal) =================
+        if (isScrolling && lockedIsHorizontal)
         {
-            // Haven't reached threshold yet, pass to scrollRect if in scroll view
-            if (pieceTakenFromScrollView && scrollRect != null && IsInsideBottomPanel())
+            if (scrollRect != null)
             {
                 scrollRect.OnDrag(eventData);
             }
             return;
         }
-    }
 
-    // ================= SCROLL (Horizontal) =================
-    if (isScrolling && lockedIsHorizontal)
-    {
-        if (scrollRect != null)
+        // ================= PIECE DRAG (Free Movement) =================
+        if (isDraggingPiece)
         {
-            scrollRect.OnDrag(eventData);
+            if (mainCanvas == null) mainCanvas = FindMainCanvas();
+            if (mainCanvas == null) return;
+
+            Vector2 pointerCanvasPos = ScreenToCanvasLocal(eventData.position);
+            Vector2 targetLocalPos = pointerCanvasPos + dragOffset;
+            
+            targetLocalPos = ClampPositionToScreen(targetLocalPos);
+            
+            SetPieceCanvasLocalPosition(targetLocalPos);
         }
-        return;
     }
-
-    // ================= PIECE DRAG (Free Movement) =================
-    if (isDraggingPiece)
-    {
-        if (mainCanvas == null) mainCanvas = FindMainCanvas();
-        if (mainCanvas == null) return;
-
-        Vector2 pointerCanvasPos = ScreenToCanvasLocal(eventData.position);
-        Vector2 targetLocalPos = pointerCanvasPos + dragOffset;
-        
-        targetLocalPos = ClampPositionToScreen(targetLocalPos);
-        
-        SetPieceCanvasLocalPosition(targetLocalPos);
-    }
-}
     
     /// <summary>
     /// Changes parent without triggering LayoutGroup/ContentSizeFitter recalculation.
     /// This prevents other pieces in the bottom panel from shifting when one piece is dragged out.
     /// </summary>
-   private void SetParentWithoutLayoutRebuild(Transform newParent)
+    private void SetParentWithoutLayoutRebuild(Transform newParent)
+{
+    // Store world position BEFORE changing parent
+    Vector3 worldPosition = rectTransform.position;
+    
+    // Temporarily disable layout components
+    LayoutGroup parentLayout = newParent?.GetComponent<LayoutGroup>();
+    ContentSizeFitter parentFitter = newParent?.GetComponent<ContentSizeFitter>();
+    
+    bool hadLayout = parentLayout != null && parentLayout.enabled;
+    bool hadFitter = parentFitter != null && parentFitter.enabled;
+    
+    if (hadLayout) parentLayout.enabled = false;
+    if (hadFitter) parentFitter.enabled = false;
+    
+    LayoutElement thisLayoutElement = GetComponent<LayoutElement>();
+    bool hadLayoutElement = thisLayoutElement != null && thisLayoutElement.enabled;
+    if (hadLayoutElement) thisLayoutElement.enabled = false;
+    
+    // Change parent
+    transform.SetParent(newParent, true);
+    
+    // Restore world position
+    rectTransform.position = worldPosition;
+    
+    // Re-enable layout components after a frame
+    if (hadLayout || hadFitter || hadLayoutElement)
     {
-        // Temporarily disable layout components on the new parent AND its children's layout controllers
-        LayoutGroup parentLayout = newParent?.GetComponent<LayoutGroup>();
-        ContentSizeFitter parentFitter = newParent?.GetComponent<ContentSizeFitter>();
-        
-        bool hadLayout = parentLayout != null && parentLayout.enabled;
-        bool hadFitter = parentFitter != null && parentFitter.enabled;
-        
-        if (hadLayout) parentLayout.enabled = false;
-        if (hadFitter) parentFitter.enabled = false;
-        
-        // ✅ NEW: Disable LayoutElement on this piece if it has one
-        LayoutElement thisLayoutElement = GetComponent<LayoutElement>();
-        bool hadLayoutElement = thisLayoutElement != null && thisLayoutElement.enabled;
-        if (hadLayoutElement) thisLayoutElement.enabled = false;
-        
-        // Change parent while preserving world position
-        Vector3 worldPos = rectTransform.position;
-        transform.SetParent(newParent, true);
-        rectTransform.position = worldPos;
-        
-        // ✅ NEW: Mark the RectTransform to NOT be driven by layout
-        rectTransform.SetAsLastSibling();
-        
-        // Re-enable layout components after a frame
-        if (hadLayout || hadFitter || hadLayoutElement)
-        {
-            StartCoroutine(ReEnableLayoutAfterFrame(parentLayout, parentFitter, thisLayoutElement, 
-                hadLayout, hadFitter, hadLayoutElement, newParent));
-        }
+        StartCoroutine(ReEnableLayoutAfterFrame(parentLayout, parentFitter, thisLayoutElement, 
+            hadLayout, hadFitter, hadLayoutElement, newParent));
     }
+}
     
     private IEnumerator ReEnableLayoutAfterFrame(LayoutGroup layout, ContentSizeFitter fitter, 
-    LayoutElement layoutElement, bool enableLayout, bool enableFitter, bool enableLayoutElement,
-    Transform parentToRebuild)
+        LayoutElement layoutElement, bool enableLayout, bool enableFitter, bool enableLayoutElement,
+        Transform parentToRebuild)
     {
         yield return null; // Wait one frame for the hierarchy change to settle
         
-        // ✅ Only rebuild the specific parent, not force rebuild all children
+        // Only rebuild the specific parent, not force rebuild all children
         if (layout != null && enableLayout) 
         {
             layout.enabled = true;
-            // Use CalculateLayoutInputHorizontal/Vertical instead of full rebuild
             layout.CalculateLayoutInputHorizontal();
             layout.CalculateLayoutInputVertical();
         }
@@ -456,7 +454,6 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         if (fitter != null && enableFitter) 
         {
             fitter.enabled = true;
-            // Set Layout fitter dirty WITHOUT forcing children to reposition
             LayoutRebuilder.MarkLayoutForRebuild(fitter.GetComponent<RectTransform>());
         }
         
@@ -510,75 +507,272 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                pieceLocalPos.y <= panelMax.y + tolerance;
     }
     
-    public void OnEndDrag(PointerEventData eventData)
+    /// <summary>
+    /// Converts a position from the piece's current parent space to board-local space.
+    /// This ensures consistent comparison with correctPosition which is defined in board space.
+    /// </summary>
+   /// <summary>
+/// Converts a position from the piece's current parent space to board-local space.
+/// </summary>
+private Vector2 ConvertToBoardSpace(Vector2 positionInCurrentParentSpace)
 {
-    if (!dragInitiated)
+    RectTransform boardRect = GetBoardRectTransform();
+    
+    if (boardRect == null)
     {
-        ReEnableScrollView();
-        return;
+        Debug.LogWarning($"[{gameObject.name}] Cannot convert to board space - board reference missing");
+        return positionInCurrentParentSpace;
     }
     
-    if (isScrolling && scrollRect != null)
+    // If piece is already child of board, no conversion needed
+    if (transform.parent == boardRect)
+        return positionInCurrentParentSpace;
+    
+    // Convert from current parent's local space to world space
+    Vector3 worldPos;
+    if (transform.parent is RectTransform parentRect)
     {
-        scrollRect.OnEndDrag(eventData);
-    }
-
-    isScrolling = false;
-    isDraggingPiece = false;
-    directionLocked = false;
-    scrollDragStarted = false;
-    dragInitiated = false;
-    canvasGroup.blocksRaycasts = true;
-    canvasGroup.alpha = 1f;
-    
-    ReEnableScrollView();
-    pieceTakenFromScrollView = false;
-    
-    if (isPlaced) return;
-    
-    bool insideBottomPanel = IsInsideBottomPanel();
-    
-    if (insideBottomPanel)
-    {
-        if (parentChanged || (bottomPanel != null && transform.parent != bottomPanel))
-        {
-            Transform targetParent = bottomPanel;
-            if (targetParent == null) targetParent = originalParent;
-            
-            if (targetParent != null)
-            {
-                // ✅ FIXED: Return to bottom panel without layout glitch
-                SetParentWithoutLayoutRebuild(targetParent);
-                parentChanged = false;
-                
-                // ✅ CRITICAL FIX: Restore the original anchored position
-                rectTransform.anchoredPosition = originalAnchoredPosition;
-                
-                if (enableDebugLogs)
-                    Debug.Log($"[{gameObject.name}] Returned to {targetParent.name} at position {originalAnchoredPosition}");
-            }
-        }
+        worldPos = parentRect.TransformPoint(positionInCurrentParentSpace);
     }
     else
     {
-        if (!parentChanged && PuzzleManager.Instance != null && 
-            PuzzleManager.Instance.pieceParent != null && 
-            transform.parent != PuzzleManager.Instance.pieceParent)
+        worldPos = transform.parent.TransformPoint(positionInCurrentParentSpace);
+    }
+    
+    // Convert from world space to board-local space
+    Vector2 boardLocalPos = boardRect.InverseTransformPoint(worldPos);
+    
+    if (enableDebugLogs)
+    {
+        Debug.Log($"[{gameObject.name}] Position Conversion:\n" +
+                $"  Current Parent Space: {positionInCurrentParentSpace}\n" +
+                $"  World Space: {worldPos}\n" +
+                $"  Board Space: {boardLocalPos}\n" +
+                $"  Correct Position (Board Space): {correctPosition}\n" +
+                $"  Distance: {Vector2.Distance(boardLocalPos, correctPosition):F2}");
+    }
+    
+    return boardLocalPos;
+}
+
+    private RectTransform GetBoardRectTransform()
+    {
+        // Option 1: If PuzzleManager has the reference (uncomment if you added it)
+        // if (PuzzleManager.Instance != null && PuzzleManager.Instance.boardRectTransform != null)
+        //     return PuzzleManager.Instance.boardRectTransform;
+        
+        // Option 2: Find by name (change "Board" to your actual board GameObject name)
+        GameObject boardObj = GameObject.Find("Board");
+        if (boardObj != null)
+            return boardObj.GetComponent<RectTransform>();
+        
+        // Option 3: Find by tag (you can set the board's tag to "Board" in inspector)
+        // boardObj = GameObject.FindWithTag("Board");
+        // if (boardObj != null)
+        //     return boardObj.GetComponent<RectTransform>();
+        
+        // Option 4: Look for the parent named "Board" near the piece
+        Transform current = transform;
+        while (current != null)
         {
-            Vector3 worldPos = rectTransform.position;
-            transform.SetParent(PuzzleManager.Instance.pieceParent, true);
-            rectTransform.position = worldPos;
-            parentChanged = true;
+            if (current.name.Contains("Board"))
+                return current.GetComponent<RectTransform>();
+            current = current.parent;
+        }
+        
+        // Option 5: If you have a reference in another way, use that
+        
+        Debug.LogError($"[{gameObject.name}] Could not find Board RectTransform! " +
+                    "Make sure there's a GameObject named 'Board' in the scene.");
+        return null;
+    }
+    
+    /// <summary>
+    /// Checks if the piece is close enough to its correct position on the board.
+    /// Uses board-local coordinates for accurate comparison.
+    /// </summary>
+   /// <summary>
+/// Checks if the piece is close enough to its correct position on the board.
+/// Uses board-local coordinates for accurate comparison.
+/// </summary>
+private bool IsSnapToPlace(Vector2 piecePositionInParentSpace)
+{
+    // Convert piece position to board space for consistent comparison
+    Vector2 pieceBoardPos = ConvertToBoardSpace(piecePositionInParentSpace);
+    
+    float distance = Vector2.Distance(pieceBoardPos, correctPosition);
+    
+    Debug.Log($"[SNAP CHECK] {gameObject.name}:\n" +
+              $"  Position in Parent Space: {piecePositionInParentSpace}\n" +
+              $"  Parent: {(transform.parent != null ? transform.parent.name : "null")}\n" +
+              $"  Converted Board Pos: {pieceBoardPos}\n" +
+              $"  Target Pos (Board Space): {correctPosition}\n" +
+              $"  Distance: {distance:F2}\n" +
+              $"  Threshold: {snapThreshold}\n" +
+              $"  Should Snap: {distance <= snapThreshold}");
+    
+    return distance <= snapThreshold;
+}
+    
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        if (!dragInitiated)
+        {
+            ReEnableScrollView();
+            return;
+        }
+
+        Vector2 dropScreenPos = eventData.position;
+        Vector2 dropCanvasPos = ScreenToCanvasLocal(eventData.position);
+
+        Debug.Log($"[DROP] {gameObject.name} dropped at:\n" +
+                $"Screen: {dropScreenPos}\n" +
+                $"Canvas: {dropCanvasPos}\n" +
+                $"Anchored: {rectTransform.anchoredPosition}");
+        
+        if (isScrolling && scrollRect != null)
+        {
+            scrollRect.OnEndDrag(eventData);
+        }
+
+        isScrolling = false;
+        isDraggingPiece = false;
+        directionLocked = false;
+        scrollDragStarted = false;
+        dragInitiated = false;
+        canvasGroup.blocksRaycasts = true;
+        canvasGroup.alpha = 1f;
+        
+        ReEnableScrollView();
+        pieceTakenFromScrollView = false;
+        
+        if (isPlaced) return;
+        
+        bool insideBottomPanel = IsInsideBottomPanel();
+        
+        if (insideBottomPanel)
+        {
+            if (parentChanged || (bottomPanel != null && transform.parent != bottomPanel))
+            {
+                Transform targetParent = bottomPanel;
+                if (targetParent == null) targetParent = originalParent;
+                
+                if (targetParent != null)
+                {
+                    SetParentWithoutLayoutRebuild(targetParent);
+                    parentChanged = false;
+                    rectTransform.anchoredPosition = originalAnchoredPosition;
+                    
+                    if (enableDebugLogs)
+                        Debug.Log($"[{gameObject.name}] Returned to {targetParent.name} at position {originalAnchoredPosition}");
+                }
+            }
+        }
+        else
+        {
+            // Piece is dropped outside bottom panel - check for placement
+            if (!parentChanged && PuzzleManager.Instance != null && 
+                PuzzleManager.Instance.pieceParent != null && 
+                transform.parent != PuzzleManager.Instance.pieceParent)
+            {
+                SetParentWithoutLayoutRebuild(PuzzleManager.Instance.pieceParent);
+                parentChanged = true;
+            }
+            
+            // Check if piece should snap to board position
+            TryPlacePiece();
         }
     }
-}
+    
+    /// <summary>
+    /// Attempts to place the piece at its correct board position.
+    /// Handles parent changes and coordinate conversions automatically.
+    /// </summary>
+   /// <summary>
+/// Attempts to place the piece at its correct board position.
+/// </summary>
+  /// <summary>
+/// Attempts to place the piece at its correct board position.
+/// </summary>
+    /// <summary>
+/// Attempts to place the piece at its correct board position.
+/// </summary>
+    private void TryPlacePiece()
+    {
+        RectTransform boardRect = GetBoardRectTransform();
+        
+        if (boardRect == null)
+        {
+            Debug.LogWarning($"[{gameObject.name}] Cannot check placement - board reference missing");
+            return;
+        }
+        
+        // Get the piece's current world position
+        Vector3 pieceWorldPos = rectTransform.position;
+        
+        // Convert world position to board-local space
+        Vector2 pieceBoardPos = boardRect.InverseTransformPoint(pieceWorldPos);
+        
+        float distance = Vector2.Distance(pieceBoardPos, correctPosition);
+        
+        Debug.Log($"[SNAP CHECK] {gameObject.name}:\n" +
+                $"  World Pos: {pieceWorldPos}\n" +
+                $"  Board Local Pos: {pieceBoardPos}\n" +
+                $"  Target Pos (Board Space): {correctPosition}\n" +
+                $"  Distance: {distance:F2}\n" +
+                $"  Threshold: {snapThreshold}");
+        
+        if (distance <= snapThreshold)
+        {
+            // Move piece to board parent
+            if (transform.parent != boardRect)
+            {
+                // IMPORTANT: Store world position before changing parent
+                Vector3 worldPosBeforeChange = rectTransform.position;
+                
+                SetParentWithoutLayoutRebuild(boardRect);
+                
+                // After parent change, convert world position to new parent's local space
+                Vector2 newLocalPos = boardRect.InverseTransformPoint(worldPosBeforeChange);
+                rectTransform.anchoredPosition = newLocalPos;
+            }
+            
+            // Now set the exact correct position in board-local space
+            rectTransform.anchoredPosition = correctPosition;
+            
+            // Reset anchors to match board's expected anchor settings
+            rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+            rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            
+            // Mark as placed
+            isPlaced = true;
+            canDrag = false;
+            
+            // Visual feedback
+            if (ghostImage != null) ghostImage.SetActive(true);
+            if (particleObject != null) particleObject.SetActive(true);
+            
+            Debug.Log($"[PLACED] {gameObject.name} snapped to correct position: {correctPosition}");
+            
+            // Check if all pieces are placed
+            CheckCompletion();
+        }
+        else
+        {
+            if (enableDebugLogs)
+            {
+                Debug.Log($"[MISSED] {gameObject.name} was {distance:F2} away from target " +
+                        $"(threshold: {snapThreshold}). Current: {pieceBoardPos}, Target: {correctPosition}");
+            }
+        }
+    }
     
     private void ReEnableScrollView()
     {
         if (scrollRect != null)
         {
             scrollRect.enabled = true;
-            //scrollRect.vertical = true;
             scrollRect.horizontal = true;
         }
     }

@@ -294,6 +294,7 @@ MonoBehaviour:
   scrollRect: {fileID: 1798704157}
   bottomPanel: {fileID: 931934448}
   dragParent: {fileID: 41782810}
+  boardRectTransform: {fileID: 476196174}
 --- !u!114 &24558424
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2765,6 +2766,7 @@ MonoBehaviour:
   scrollRect: {fileID: 0}
   bottomPanel: {fileID: 0}
   dragParent: {fileID: 0}
+  boardRectTransform: {fileID: 0}
 --- !u!1 &983771659
 GameObject:
   m_ObjectHideFlags: 0
@@ -3948,13 +3950,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cd4ce7aafada54553b28bf531cf55040, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DragAndDrop
-  horizontalThreshold: 20
-  verticalThreshold: 20
-  scrollRect: {fileID: 1798704157}
-  dummyCanvas: {fileID: 1285815681}
-  dragStartPosition: {x: 0, y: 0}
-  dragDirection: none
-  hasDisabledDummy: 0
 --- !u!1 &1289083745
 GameObject:
   m_ObjectHideFlags: 0

@@ -81,6 +81,9 @@ public class PuzzleManager : MonoBehaviour
 
     public RectTransform dragParent;
 
+    [Header("Board Reference")]
+    public RectTransform boardRectTransform;  
+
     // --------------------------------------------------
     void Awake()
     {
