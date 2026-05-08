@@ -65,6 +65,8 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     private RectTransform canvasRectTransform;
     private Camera renderCamera;
     private bool scrollWasEnabled = true;
+
+    [SerializeField] private float exitBottomPanelThreshold = 40f;
     
     private void Awake()
     {
@@ -296,110 +298,114 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             Debug.Log($"[{gameObject.name}] BeginDrag - Offset: {dragOffset}");
     }
     
-    public void OnDrag(PointerEventData eventData)
+        public void OnDrag(PointerEventData eventData)
+{
+    if (isPlaced || !canDrag || !dragInitiated)
+        return;
+
+    Vector2 totalDelta = eventData.position - dragStartPosition;
+
+    float absX = Mathf.Abs(totalDelta.x);
+    float absY = Mathf.Abs(totalDelta.y);
+
+    // =====================================
+    // START AS SCROLL
+    // =====================================
+    if (!isDraggingPiece)
     {
-        if (isPlaced || !canDrag || !dragInitiated) return;
-
-        Vector2 totalDelta = eventData.position - dragStartPosition;
-
-        if (!directionLocked)
+        // Horizontal movement → scroll
+        if (absX > absY)
         {
-            if (totalDelta.magnitude >= directionThreshold)
-            {
-                // Check if piece is in the scroll view (bottom panel)
-                if (pieceTakenFromScrollView && IsInsideBottomPanel())
-                {
-                    float absX = Mathf.Abs(totalDelta.x);
-                    float absY = Mathf.Abs(totalDelta.y);
-                    
-                    // If horizontal movement is dominant, it's a scroll
-                    if (absX > absY)
-                    {
-                        isScrolling = true;
-                        isDraggingPiece = false;
-                        lockedIsHorizontal = true;
-                        directionLocked = true;
-                        
-                        canvasGroup.blocksRaycasts = false;
-                        
-                        if (scrollRect != null)
-                        {
-                            scrollRect.enabled = true;
-                            scrollRect.horizontal = true;
-                            scrollRect.vertical = false;
-                            
-                            if (!scrollDragStarted)
-                            {
-                                scrollRect.OnBeginDrag(eventData);
-                                scrollDragStarted = true;
-                            }
-                        }
-                        
-                        if (enableDebugLogs)
-                            Debug.Log($"[{gameObject.name}] Started Horizontal Scroll (absX:{absX:F1} > absY:{absY:F1})");
-                    }
-                    // If vertical movement is dominant, start dragging the piece
-                    else
-                    {
-                        isDraggingPiece = true;
-                        isScrolling = false;
-                        directionLocked = true;
-                        
-                        canvasGroup.blocksRaycasts = true;
-                        
-                        if (enableDebugLogs)
-                            Debug.Log($"[{gameObject.name}] Started Vertical Piece Drag (absY:{absY:F1} > absX:{absX:F1})");
-                    }
-                }
-                // Piece is already outside bottom panel or was never in scroll view - free drag
-                else
-                {
-                    isDraggingPiece = true;
-                    isScrolling = false;
-                    directionLocked = true;
-                    
-                    canvasGroup.blocksRaycasts = true;
-                    
-                    if (enableDebugLogs)
-                        Debug.Log($"[{gameObject.name}] Started Free Drag (Outside Bottom Panel)");
-                }
-            }
-            else
-            {
-                // Haven't reached threshold yet, pass to scrollRect if in scroll view
-                if (pieceTakenFromScrollView && scrollRect != null && IsInsideBottomPanel())
-                {
-                    scrollRect.OnDrag(eventData);
-                }
-                return;
-            }
-        }
+            isScrolling = true;
 
-        // ================= SCROLL (Horizontal) =================
-        if (isScrolling && lockedIsHorizontal)
-        {
+            canvasGroup.blocksRaycasts = false;
+
             if (scrollRect != null)
             {
+                scrollRect.enabled = true;
+
+                if (!scrollDragStarted)
+                {
+                    scrollRect.OnBeginDrag(eventData);
+                    scrollDragStarted = true;
+                }
+
                 scrollRect.OnDrag(eventData);
             }
+
             return;
         }
 
-        // ================= PIECE DRAG (Free Movement) =================
-        if (isDraggingPiece)
+        // =====================================
+        // SWITCH TO PIECE DRAG
+        // =====================================
+        if (absY > absX && absY > directionThreshold)
         {
-            if (mainCanvas == null) mainCanvas = FindMainCanvas();
-            if (mainCanvas == null) return;
+            isDraggingPiece = true;
+            isScrolling = false;
 
-            Vector2 pointerCanvasPos = ScreenToCanvasLocal(eventData.position);
-            Vector2 targetLocalPos = pointerCanvasPos + dragOffset;
-            
-            targetLocalPos = ClampPositionToScreen(targetLocalPos);
-            
-            SetPieceCanvasLocalPosition(targetLocalPos);
+            canvasGroup.blocksRaycasts = true;
+
+            if (scrollRect != null)
+            {
+                scrollRect.OnEndDrag(eventData);
+                scrollRect.StopMovement();
+                scrollRect.enabled = false;
+            }
+
+            // Move piece to top layer
+            if (!parentChanged &&
+                PuzzleManager.Instance != null &&
+                PuzzleManager.Instance.pieceParent != null)
+            {
+                if (HasExitedBottomPanel(eventData))
+                {
+                    SetParentWithoutLayoutRebuild(PuzzleManager.Instance.pieceParent);
+                    parentChanged = true;
+                }
+            }
         }
     }
+
     
+
+    // =====================================
+    // DRAG PIECE
+    // =====================================
+    if (isDraggingPiece)
+    {
+        Vector2 pointerCanvasPos = ScreenToCanvasLocal(eventData.position);
+
+        Vector2 targetLocalPos = pointerCanvasPos + dragOffset;
+
+        targetLocalPos = ClampPositionToScreen(targetLocalPos);
+
+        SetPieceCanvasLocalPosition(targetLocalPos);
+    }
+}
+    
+
+    private bool HasExitedBottomPanel(PointerEventData eventData)
+{
+    if (bottomPanel == null)
+        return true;
+
+    Vector2 localPoint;
+
+    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+        bottomPanel,
+        eventData.position,
+        renderCamera,
+        out localPoint
+    );
+
+    Rect rect = bottomPanel.rect;
+
+    // Add extra threshold above panel
+    rect.yMax += exitBottomPanelThreshold;
+
+    return !rect.Contains(localPoint);
+}
     /// <summary>
     /// Changes parent without triggering LayoutGroup/ContentSizeFitter recalculation.
     /// This prevents other pieces in the bottom panel from shifting when one piece is dragged out.
@@ -630,7 +636,7 @@ private bool IsSnapToPlace(Vector2 piecePositionInParentSpace)
                 $"Canvas: {dropCanvasPos}\n" +
                 $"Anchored: {rectTransform.anchoredPosition}");
         
-        if (isScrolling && scrollRect != null)
+        if (scrollDragStarted && scrollRect != null)
         {
             scrollRect.OnEndDrag(eventData);
         }
@@ -769,13 +775,12 @@ private bool IsSnapToPlace(Vector2 piecePositionInParentSpace)
     }
     
     private void ReEnableScrollView()
+{
+    if (scrollRect != null)
     {
-        if (scrollRect != null)
-        {
-            scrollRect.enabled = true;
-            scrollRect.horizontal = true;
-        }
+        scrollRect.enabled = true;
     }
+}
 
     public void OnInitializePotentialDrag(PointerEventData eventData)
     {
