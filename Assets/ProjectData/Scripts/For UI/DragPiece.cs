@@ -244,8 +244,8 @@ public class DragPiece : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         
         dragStartPosition = eventData.position;
         dragInitiated = false;
-        originalAnchoredPosition = rectTransform.anchoredPosition;
-        originalParent = transform.parent;
+        // originalAnchoredPosition = rectTransform.anchoredPosition;
+        // originalParent = transform.parent;
         pieceTakenFromScrollView = IsInsideScrollView();
         scrollWasEnabled = scrollRect != null && scrollRect.enabled;
         
