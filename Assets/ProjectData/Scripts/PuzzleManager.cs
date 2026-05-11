@@ -84,6 +84,10 @@ public class PuzzleManager : MonoBehaviour
     [Header("Board Reference")]
     public RectTransform boardRectTransform;  
 
+    [Header("Drag")]
+ 
+        public float snapThreshold = 50f;
+
     // --------------------------------------------------
     void Awake()
     {
@@ -144,6 +148,25 @@ public class PuzzleManager : MonoBehaviour
 
         InitLevel();
     }
+
+    // Add this method to PuzzleManager
+void ConfigureScrollRectForDrag()
+{
+    if (scrollRect != null)
+    {
+        // Make ScrollRect require a minimum drag distance before scrolling
+        // This lets pieces be dragged when touched directly
+        scrollRect.scrollSensitivity = 15f;
+        
+        // Add a CanvasGroup to the content to ensure raycasts pass through to pieces
+        CanvasGroup contentCG = scrollRect.content.GetComponent<CanvasGroup>();
+        if (contentCG == null)
+            contentCG = scrollRect.content.gameObject.AddComponent<CanvasGroup>();
+        contentCG.blocksRaycasts = true;
+        
+        Debug.Log("🔧 ScrollRect configured for piece dragging");
+    }
+}
 
 public void UpdateDragOrder(DragPiece draggedPiece)
 {
@@ -211,7 +234,7 @@ public void RefreshSortingOrdersFromList()
         if (drag != null && drag.isPlaced && !dragOrderList.Contains(drag))
         {
             drag.SetPieceSortingOrder(placedOrder);
-            Debug.Log($"  Set PLACED {drag.name} - piece order: {placedOrder}, shadow order: {placedOrder + 1}");
+            //Debug.Log($"  Set PLACED {drag.name} - piece order: {placedOrder}, shadow order: {placedOrder + 1}");
             placedOrder += 2;
         }
     }
@@ -223,7 +246,7 @@ public void RefreshSortingOrdersFromList()
         if (drag != null && !drag.isPlaced && !dragOrderList.Contains(drag))
         {
             drag.SetPieceSortingOrder(unplacedOrder);
-            Debug.Log($"  Set UNPLACED (static) {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
+            //Debug.Log($"  Set UNPLACED (static) {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
             unplacedOrder += 2;
         }
     }
@@ -234,12 +257,12 @@ public void RefreshSortingOrdersFromList()
         if (drag != null && !drag.isPlaced)
         {
             drag.SetPieceSortingOrder(unplacedOrder);
-            Debug.Log($"  Set DRAGGED {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
+            //Debug.Log($"  Set DRAGGED {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
             unplacedOrder += 2;
         }
     }
     
-    Debug.Log($"📊 Updated sorting orders - Placed range: 0-{placedOrder-1}, Unplaced range: 1000-{unplacedOrder-1}");
+    //Debug.Log($"📊 Updated sorting orders - Placed range: 0-{placedOrder-1}, Unplaced range: 1000-{unplacedOrder-1}");
 }
 
 // Remove from drag order when piece is placed
@@ -654,7 +677,7 @@ public void RemoveFromDragOrder(DragPiece drag)
             puzzlePiece.group = new PuzzleGroup();
             puzzlePiece.group.AddPiece(puzzlePiece);
             
-            Debug.Log($"🔄 {piece.name} reset to independent group in bottom tray");
+           // Debug.Log($"🔄 {piece.name} reset to independent group in bottom tray");
         }
 
         int slot = GetEmptySlot();
