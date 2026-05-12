@@ -155,38 +155,41 @@ public class DragPiece : MonoBehaviour,
     // =========================================================
 
     public void OnBeginDrag(PointerEventData eventData)
-{
-    if (isPlaced || !canDrag) return;
-
-    float dragDistance = Vector2.Distance(eventData.position, dragStartPosition);
-    if (dragDistance < dragStartThreshold) return;
-
-    dragInitiated = true;
-
-    originalParentBeforeDrag = transform.parent;
-    originalSiblingIndex = rectTransform.GetSiblingIndex();
-    originalParent = transform.parent;
-    originalAnchoredPosition = rectTransform.anchoredPosition;
-
-    // Store offset in WORLD SPACE (independent of parent)
-    Vector3 pieceWorldPos = rectTransform.position;
-    Vector3 pointerWorldPos = ScreenToWorldPoint(eventData.position);
-    worldOffset = pieceWorldPos - pointerWorldPos;
-
-    canvasGroup.blocksRaycasts = true;
-
-    if (PuzzleManager.Instance != null)
     {
-        if (piece.group != null && piece.group.pieces.Count > 1)
-            PuzzleManager.Instance.BringGroupToFront(piece.group);
-        else
-            PuzzleManager.Instance.UpdateDragOrder(this);
+        if (isPlaced || !canDrag) return;
+
+        float dragDistance = Vector2.Distance(eventData.position, dragStartPosition);
+        if (dragDistance < dragStartThreshold) return;
+
+        dragInitiated = true;
+
+        originalParentBeforeDrag = transform.parent;
+        originalSiblingIndex = rectTransform.GetSiblingIndex();
+        originalParent = transform.parent;
+        originalAnchoredPosition = rectTransform.anchoredPosition;
+
+        // Store offset in WORLD SPACE (independent of parent)
+        Vector3 pieceWorldPos = rectTransform.position;
+        Vector3 pointerWorldPos = ScreenToWorldPoint(eventData.position);
+        worldOffset = pieceWorldPos - pointerWorldPos;
+
+        canvasGroup.blocksRaycasts = true;
+
+        if (PuzzleManager.Instance != null)
+        {
+            if (piece.group != null && piece.group.pieces.Count > 1)
+                PuzzleManager.Instance.BringGroupToFront(piece.group);
+            else
+                PuzzleManager.Instance.UpdateDragOrder(this);
+            
+            // Only call RemoveFromBottomWithoutFill if piece is in bottom parent
+            if (transform.parent == PuzzleManager.Instance.bottomParent || 
+                originalParentBeforeDrag == PuzzleManager.Instance.bottomParent)
+            {
+                PuzzleManager.Instance.RemoveFromBottomWithoutFill(gameObject);
+            }
+        }
     }
-    
-    // ✅ Remove from overflow queue if this piece is in overflow
-    // This ensures the piece is properly tracked when dragged from overflow
-    PuzzleManager.Instance.RemoveFromBottomWithoutFill(gameObject);
-}
 
     // =========================================================
     // DRAG
@@ -306,7 +309,7 @@ public class DragPiece : MonoBehaviour,
     }
 
     // =========================================================
-    // END DRAG
+    // END DRAG - Piece stays in place if not snapped
     // =========================================================
 
     public void OnEndDrag(PointerEventData eventData)
@@ -341,6 +344,7 @@ public class DragPiece : MonoBehaviour,
 
             if (distance <= snapThreshold)
             {
+                // ✅ CORRECT POSITION - Snap and place
                 if (enableDebugLogs) Debug.Log($"✅ SNAP! {name} placed!");
                 if (particleObject != null) particleObject.SetActive(true);
                 PlacePieceImmediate();
@@ -368,24 +372,45 @@ public class DragPiece : MonoBehaviour,
                     }
                 }
             }
-        }
-
-        // BOTTOM PANEL RETURN
-        if (isOverBottom)
-        {
-            if (enableDebugLogs) Debug.Log($"📥 {name} returning to Bottom Panel");
-            ReturnToBottomPanel();
+            
+            // ✅ WRONG POSITION - Piece STAYS in puzzle area at current position
+            // Don't return to bottom panel, don't change position
+            // Just re-enable dragging and keep the piece where it is
+            if (enableDebugLogs) Debug.Log($"📍 {name} dropped in wrong position - staying in puzzle area");
+            
+            // Reset parentChanged so piece can be dragged again from current position
+            parentChanged = true; // Keep true so we know it's in pieceParent
+            canvasGroup.blocksRaycasts = true;
+            
+            // Check for merge with nearby pieces
+            CheckForMerge();
             return;
         }
 
-        // RETURN TO ORIGINAL
-        if (originalParentBeforeDrag != null)
+        // If piece was NOT moved to pieceParent (still in bottom panel during drag)
+        // Just return it to its original position in bottom panel
+        if (isOverBottom || originalParentBeforeDrag != null)
         {
-            if (enableDebugLogs) Debug.Log($"📤 {name} returning to original parent: {originalParentBeforeDrag.name}");
-            ReturnToContentParent();
+            if (enableDebugLogs) Debug.Log($"📍 {name} staying in bottom panel");
+            
+            // If parent was changed but not to pieceParent, return to original
+            if (transform.parent != originalParentBeforeDrag && originalParentBeforeDrag != null)
+            {
+                Vector3 worldPos = rectTransform.position;
+                transform.SetParent(originalParentBeforeDrag, true);
+                rectTransform.position = worldPos;
+                rectTransform.localScale = Vector3.one;
+                parentChanged = false;
+                
+                if (originalSiblingIndex >= 0 && originalSiblingIndex < transform.parent.childCount)
+                    transform.SetSiblingIndex(originalSiblingIndex);
+            }
+            
+            ReEnableScrollView();
             return;
         }
 
+        // Check for merge
         CheckForMerge();
     }
 
@@ -564,8 +589,9 @@ private void PlacePieceImmediate()
         return false;
     }
 
-    private void ReturnToBottomPanel()
+        private void ReturnToBottomPanel()
     {
+        // Only used when piece is explicitly dropped on bottom panel
         Vector3 worldPos = rectTransform.position;
         
         // Handle group pieces too
@@ -580,6 +606,10 @@ private void PlacePieceImmediate()
                     d.transform.SetParent(PuzzleManager.Instance.bottomParent, true);
                     d.rectTransform.position = groupWorldPos;
                     d.parentChanged = false;
+                    
+                    // Re-enable drag for returned pieces
+                    d.canDrag = true;
+                    d.canvasGroup.blocksRaycasts = true;
                 }
             }
         }
@@ -588,6 +618,11 @@ private void PlacePieceImmediate()
         rectTransform.position = worldPos;
         rectTransform.localScale = Vector3.one;
         parentChanged = false;
+        
+        // Re-enable drag
+        canDrag = true;
+        canvasGroup.blocksRaycasts = true;
+        
         PuzzleManager.Instance.ForceRearrangeBottom();
     }
 
