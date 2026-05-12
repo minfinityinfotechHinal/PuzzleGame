@@ -196,118 +196,117 @@ public class DragPiece : MonoBehaviour,
     // =========================================================
 
     public void OnDrag(PointerEventData eventData)
+{
+    if (isPlaced || !canDrag || !dragInitiated)
+        return;
+
+    bool insideBottom = IsPointerOverBottomPanel(eventData);
+
+    // =====================================================
+    // MODE 1 = SCROLLING INSIDE BOTTOM PANEL
+    // =====================================================
+
+    if (!parentChanged && insideBottom)
     {
-        if (isPlaced || !canDrag || !dragInitiated) return;
-
-        // If already in pieceParent, drag freely
-        if (parentChanged && transform.parent == PuzzleManager.Instance.pieceParent)
+        // Start scrolling only once
+        if (!isScrolling)
         {
-            isDraggingPiece = true;
-            if (scrollRect != null) scrollRect.enabled = false;
+            isScrolling = true;
+            isDraggingPiece = false;
 
-            Vector3 pointerWorld = ScreenToWorldPoint(eventData.position);
-            Vector3 newWorldPos = pointerWorld + worldOffset;
-            
-            // Move this piece
-            Vector3 delta = newWorldPos - rectTransform.position;
-            rectTransform.position = newWorldPos;
-
-            // Move group
-            if (piece.group != null && piece.group.pieces.Count > 1)
+            if (scrollRect != null)
             {
-                piece.group.Move(new Vector2(delta.x, delta.y));
-            }
+                scrollRect.enabled = true;
 
-            // Ghost check
-            if (ghostImage != null)
-            {
-                Vector2 localPos = ConvertWorldToPieceParentAnchored(rectTransform.position);
-                float dist = Vector2.Distance(localPos, correctPosition);
-                ghostImage.SetActive(dist <= snapThreshold * 1.5f);
-            }
-            return;
-        }
+                scrollRect.OnInitializePotentialDrag(eventData);
+                scrollRect.OnBeginDrag(eventData);
 
-        // Still in bottom panel - decide: scroll or exit
-        if (!isDraggingPiece)
-        {
-            Vector2 totalMovement = eventData.position - dragStartPosition;
-            float horizontal = Mathf.Abs(totalMovement.x);
-            float vertical = totalMovement.y;
-
-            if (vertical > verticalExitDistance)
-            {
-                // === EXIT BOTTOM PANEL ===
-                if (scrollRect != null)
-                {
-                    if (scrollDragStarted) scrollRect.OnEndDrag(eventData);
-                    scrollRect.enabled = false;
-                }
-
-                isScrolling = false;
-                scrollDragStarted = false;
-
-                if (!parentChanged && PuzzleManager.Instance != null)
-                {
-                    // Keep world position
-                    Vector3 worldPos = rectTransform.position;
-                    
-                    // Change parent
-                    transform.SetParent(PuzzleManager.Instance.pieceParent, true);
-                    
-                    // Restore world position
-                    rectTransform.position = worldPos;
-                    
-                    transform.SetAsLastSibling();
-                    parentChanged = true;
-                }
-
-                isDraggingPiece = true;
-                canvasGroup.blocksRaycasts = true;
-            }
-            else if (horizontal > Mathf.Abs(vertical))
-            {
-                // Scrolling
-                isScrolling = true;
-                canvasGroup.blocksRaycasts = false;
-
-                if (scrollRect != null)
-                {
-                    scrollRect.enabled = true;
-                    if (!scrollDragStarted)
-                    {
-                        scrollRect.OnBeginDrag(eventData);
-                        scrollDragStarted = true;
-                    }
-                    scrollRect.OnDrag(eventData);
-                }
-                return;
+                scrollDragStarted = true;
             }
         }
 
-        // Drag in pieceParent
-        if (isDraggingPiece)
+        // Continue scroll
+        if (scrollRect != null)
         {
-            Vector3 pointerWorld = ScreenToWorldPoint(eventData.position);
-            Vector3 newWorldPos = pointerWorld + worldOffset;
-            
-            Vector3 delta = newWorldPos - rectTransform.position;
-            rectTransform.position = newWorldPos;
-
-            if (piece.group != null && piece.group.pieces.Count > 1)
-            {
-                piece.group.Move(new Vector2(delta.x, delta.y));
-            }
-
-            if (ghostImage != null)
-            {
-                Vector2 localPos = ConvertWorldToPieceParentAnchored(rectTransform.position);
-                float dist = Vector2.Distance(localPos, correctPosition);
-                ghostImage.SetActive(dist <= snapThreshold * 1.5f);
-            }
+            scrollRect.OnDrag(eventData);
         }
+
+        return;
     }
 
+    // =====================================================
+    // EXIT BOTTOM PANEL -> SWITCH TO PIECE DRAG
+    // =====================================================
+
+    if (!parentChanged && !insideBottom)
+    {
+        // STOP SCROLL COMPLETELY
+        if (scrollRect != null)
+        {
+            if (scrollDragStarted)
+            {
+                scrollRect.OnEndDrag(eventData);
+            }
+
+            scrollRect.velocity = Vector2.zero;
+            scrollRect.StopMovement();
+            scrollRect.enabled = false;
+        }
+
+        scrollDragStarted = false;
+        isScrolling = false;
+
+        // MOVE TO PIECE PARENT
+        Vector3 worldPos = rectTransform.position;
+
+        transform.SetParent(PuzzleManager.Instance.pieceParent, true);
+
+        rectTransform.position = worldPos;
+        rectTransform.localScale = Vector3.one;
+
+        transform.SetAsLastSibling();
+
+        parentChanged = true;
+        isDraggingPiece = true;
+
+        // RECALCULATE OFFSET
+        Vector3 pointerWorld = ScreenToWorldPoint(eventData.position);
+        worldOffset = rectTransform.position - pointerWorld;
+    }
+
+    // =====================================================
+    // MODE 2 = NORMAL PIECE DRAG
+    // =====================================================
+
+    if (parentChanged && isDraggingPiece)
+    {
+        Vector3 pointerWorld = ScreenToWorldPoint(eventData.position);
+
+        Vector3 targetWorldPos = pointerWorld + worldOffset;
+
+        Vector3 delta = targetWorldPos - rectTransform.position;
+
+        rectTransform.position = targetWorldPos;
+
+        // GROUP MOVE
+        if (piece.group != null && piece.group.pieces.Count > 1)
+        {
+            piece.group.Move(new Vector2(delta.x, delta.y));
+        }
+
+        // GHOST
+        if (ghostImage != null)
+        {
+            Vector2 localPos =
+                ConvertWorldToPieceParentAnchored(rectTransform.position);
+
+            float dist =
+                Vector2.Distance(localPos, correctPosition);
+
+            ghostImage.SetActive(dist <= snapThreshold * 1.5f);
+        }
+    }
+}
     // =========================================================
     // END DRAG - Piece stays in place if not snapped
     // =========================================================
@@ -650,6 +649,12 @@ private void PlacePieceImmediate()
         foreach (var other in PuzzleManager.Instance.allPieces)
         {
             if (other == piece) continue;
+
+            // ✅ Don't merge with fully placed pieces
+            DragPiece otherDrag = other.GetComponent<DragPiece>();
+
+            if (otherDrag != null && otherDrag.isPlaced)
+                continue;
             if (other.group == piece.group) continue;
 
             float physicalDistance = Vector2.Distance(
@@ -705,8 +710,19 @@ private void PlacePieceImmediate()
 
         foreach (var p in piece.group.pieces)
         {
+            DragPiece drag = p.GetComponent<DragPiece>();
+
+            // ✅ DO NOT MOVE ALREADY PLACED PIECES
+            if (drag != null && drag.isPlaced)
+                continue;
+
             RectTransform r = p.GetComponent<RectTransform>();
-            if (r != null) { r.SetParent(PuzzleManager.Instance.pieceParent, true); r.anchoredPosition += offset; }
+
+            if (r != null)
+            {
+                r.SetParent(PuzzleManager.Instance.pieceParent, true);
+                r.anchoredPosition += offset;
+            }
         }
 
         if (otherRect.parent == PuzzleManager.Instance.pieceParent)
@@ -792,11 +808,14 @@ private void PlacePieceImmediate()
 
     private bool IsInsideScrollView() => GetComponentInParent<ScrollRect>() != null;
     
-    private void ReEnableScrollView() 
-    { 
-        if (scrollRect != null) 
-            scrollRect.enabled = true; 
+    private void ReEnableScrollView()
+{
+    if (scrollRect != null)
+    {
+        scrollRect.enabled = true;
+        scrollRect.velocity = Vector2.zero;
     }
+}
     
     public void OnInitializePotentialDrag(PointerEventData eventData) 
     { 
