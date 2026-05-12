@@ -84,6 +84,10 @@ public class PuzzleManager : MonoBehaviour
     [Header("Board Reference")]
     public RectTransform boardRectTransform;  
 
+    [Header("Drag")]
+ 
+        public float snapThreshold = 50f;
+
     // --------------------------------------------------
     void Awake()
     {
@@ -144,6 +148,25 @@ public class PuzzleManager : MonoBehaviour
 
         InitLevel();
     }
+
+    // Add this method to PuzzleManager
+void ConfigureScrollRectForDrag()
+{
+    if (scrollRect != null)
+    {
+        // Make ScrollRect require a minimum drag distance before scrolling
+        // This lets pieces be dragged when touched directly
+        scrollRect.scrollSensitivity = 15f;
+        
+        // Add a CanvasGroup to the content to ensure raycasts pass through to pieces
+        CanvasGroup contentCG = scrollRect.content.GetComponent<CanvasGroup>();
+        if (contentCG == null)
+            contentCG = scrollRect.content.gameObject.AddComponent<CanvasGroup>();
+        contentCG.blocksRaycasts = true;
+        
+        Debug.Log("🔧 ScrollRect configured for piece dragging");
+    }
+}
 
 public void UpdateDragOrder(DragPiece draggedPiece)
 {
@@ -211,7 +234,7 @@ public void RefreshSortingOrdersFromList()
         if (drag != null && drag.isPlaced && !dragOrderList.Contains(drag))
         {
             drag.SetPieceSortingOrder(placedOrder);
-            Debug.Log($"  Set PLACED {drag.name} - piece order: {placedOrder}, shadow order: {placedOrder + 1}");
+            //Debug.Log($"  Set PLACED {drag.name} - piece order: {placedOrder}, shadow order: {placedOrder + 1}");
             placedOrder += 2;
         }
     }
@@ -223,7 +246,7 @@ public void RefreshSortingOrdersFromList()
         if (drag != null && !drag.isPlaced && !dragOrderList.Contains(drag))
         {
             drag.SetPieceSortingOrder(unplacedOrder);
-            Debug.Log($"  Set UNPLACED (static) {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
+            //Debug.Log($"  Set UNPLACED (static) {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
             unplacedOrder += 2;
         }
     }
@@ -234,12 +257,12 @@ public void RefreshSortingOrdersFromList()
         if (drag != null && !drag.isPlaced)
         {
             drag.SetPieceSortingOrder(unplacedOrder);
-            Debug.Log($"  Set DRAGGED {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
+            //Debug.Log($"  Set DRAGGED {drag.name} - piece order: {unplacedOrder}, shadow order: {unplacedOrder + 1}");
             unplacedOrder += 2;
         }
     }
     
-    Debug.Log($"📊 Updated sorting orders - Placed range: 0-{placedOrder-1}, Unplaced range: 1000-{unplacedOrder-1}");
+    //Debug.Log($"📊 Updated sorting orders - Placed range: 0-{placedOrder-1}, Unplaced range: 1000-{unplacedOrder-1}");
 }
 
 // Remove from drag order when piece is placed
@@ -279,7 +302,7 @@ public void RemoveFromDragOrder(DragPiece drag)
     // Add this method to PuzzleManager class
     // Add this public method to your PuzzleManager class
     // Add this to PuzzleManager class - handles visible + overflow properly
-    public void UpdateSlotPiecesAfterShuffleWithOverflow(List<GameObject> visiblePieces, List<GameObject> hiddenPieces)
+   public void UpdateSlotPiecesAfterShuffleWithOverflow(List<GameObject> visiblePieces, List<GameObject> hiddenPieces)
 {
     // Clear all slots
     for (int i = 0; i < maxVisible; i++)
@@ -292,7 +315,6 @@ public void RemoveFromDragOrder(DragPiece drag)
     {
         slotPieces[i] = visiblePieces[i];
         
-        // Ensure correct position and state
         RectTransform rect = visiblePieces[i].GetComponent<RectTransform>();
         if (rect != null)
         {
@@ -306,7 +328,7 @@ public void RemoveFromDragOrder(DragPiece drag)
         DragPiece drag = visiblePieces[i].GetComponent<DragPiece>();
         if (drag != null)
         {
-            drag.canDrag = true;
+            drag.canDrag = true; // ✅ Visible pieces always draggable
         }
     }
     
@@ -314,30 +336,39 @@ public void RemoveFromDragOrder(DragPiece drag)
     overflowQueue.Clear();
     foreach (var piece in hiddenPieces)
     {
-        piece.SetActive(false);
+        piece.SetActive(true); // ✅ KEEP VISIBLE
         piece.transform.SetParent(bottomParent, false);
+        
+        RectTransform rect = piece.GetComponent<RectTransform>();
+        if (rect != null)
+        {
+            rect.localScale = Vector3.one; // ✅ Full scale
+        }
         
         DragPiece drag = piece.GetComponent<DragPiece>();
         if (drag != null)
         {
-            drag.canDrag = true;
+            drag.canDrag = true; // ✅ OVERFLOW PIECES ALSO DRAGGABLE
         }
         
         overflowQueue.Enqueue(piece);
     }
     
-    // Update bottomPieces list - IMPORTANT: hidden pieces go AFTER visible
+    // Update bottomPieces list with ALL pieces
     bottomPieces.Clear();
     foreach (var piece in visiblePieces)
     {
         bottomPieces.Add(piece);
     }
-    // Don't add hidden pieces to bottomPieces - they're in overflowQueue
+    foreach (var piece in hiddenPieces)
+    {
+        bottomPieces.Add(piece);
+    }
     
     // Reset overflow index
     overflowIndex = hiddenPieces.Count;
     
-    Debug.Log($"📋 Shuffle update: {visiblePieces.Count} visible in slots, {hiddenPieces.Count} in overflow queue");
+    Debug.Log($"📋 Shuffle update: {visiblePieces.Count} visible in slots, {hiddenPieces.Count} in overflow queue - ALL DRAGGABLE");
 }
 
     public void OnGroupPlaced(List<PuzzlePiece> placedPieces)
@@ -534,50 +565,102 @@ public void RemoveFromDragOrder(DragPiece drag)
         yield return ScatterToBottom();
     }
 
-    void SpawnPieces()
+  void SpawnPieces()
+{
+    GameObject[] prefabs = currentSet.prefabs;
+
+    totalPieces = prefabs.Length;
+    spawnedPieces = new GameObject[prefabs.Length];
+    initialPositions.Clear();
+    allPieces.Clear();
+
+    Debug.Log($"=== SPAWNING {prefabs.Length} PIECES ===");
+    Debug.Log($"[SPAWN INFO] pieceParent: {pieceParent.name} | pieceParent anchoredPos: {((RectTransform)pieceParent).anchoredPosition} | pieceParent size: {((RectTransform)pieceParent).sizeDelta}");
+
+    for (int i = 0; i < prefabs.Length; i++)
     {
-        GameObject[] prefabs = currentSet.prefabs;
+        GameObject obj = Instantiate(prefabs[i], pieceParent, false);
 
-        totalPieces = prefabs.Length;
-        spawnedPieces = new GameObject[prefabs.Length];
-        initialPositions.Clear();
-        allPieces.Clear();
-
-        for (int i = 0; i < prefabs.Length; i++)
-        {
-            GameObject obj = Instantiate(prefabs[i], pieceParent, false);
-
-            RectTransform rect = obj.GetComponent<RectTransform>();
-            initialPositions.Add(rect.anchoredPosition);
-
-            PuzzlePiece piece = obj.GetComponent<PuzzlePiece>();
-            if (piece != null) 
-            {
-                piece.Setup(i);
-                allPieces.Add(piece);
-            }
-
-            DragPiece drag = obj.GetComponent<DragPiece>();
-            if (drag != null)
-            {
-                drag.canDrag = true;
-                drag.correctPosition = rect.anchoredPosition;
-                drag.dragArea = dragArea;
-            }
-
-            spawnedPieces[i] = obj;
-        }
+        RectTransform rect = obj.GetComponent<RectTransform>();
         
-        if (spawnedPieces.Length >= 2)
-        {
-            Vector2 pos0 = spawnedPieces[0].GetComponent<RectTransform>().anchoredPosition;
-            Vector2 pos1 = spawnedPieces[1].GetComponent<RectTransform>().anchoredPosition;
-            cellSize = Mathf.Abs(pos1.x - pos0.x);
-            Debug.Log($"🟢 DETECTED CELL SIZE: {cellSize}");
-        }
+        // ✅ Store initial anchored position (relative to pieceParent)
+        Vector2 initialAnchoredPos = rect.anchoredPosition;
+        Vector3 initialWorldPos = rect.position;
+        Vector3 initialLocalPos = rect.localPosition;
         
-        AssignNeighbors();
+        initialPositions.Add(initialAnchoredPos);
+
+        PuzzlePiece puzzlePiece = obj.GetComponent<PuzzlePiece>();
+        if (puzzlePiece != null) 
+        {
+            puzzlePiece.Setup(i);
+            allPieces.Add(puzzlePiece);
+        }
+
+        DragPiece drag = obj.GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            drag.canDrag = true; // Start as false, becomes true after scatter
+            
+            // ✅ CRITICAL: Store position relative to pieceParent
+            // This is the anchored position when the piece is a child of pieceParent
+            drag.correctPosition = initialAnchoredPos;
+            drag.dragArea = dragArea;
+            
+            // ✅ DEBUG: Print all position info
+            Debug.Log($"[SPAWN {i}] {obj.name} | " +
+                      $"AnchoredPos: {initialAnchoredPos} | " +
+                      $"LocalPos: {initialLocalPos} | " +
+                      $"WorldPos: {initialWorldPos} | " +
+                      $"SizeDelta: {rect.sizeDelta} | " +
+                      $"Pivot: {rect.pivot} | " +
+                      $"AnchorMin: {rect.anchorMin} | " +
+                      $"AnchorMax: {rect.anchorMax}");
+        }
+        else
+        {
+            Debug.LogError($"[SPAWN {i}] {obj.name} has NO DragPiece component!");
+        }
+
+        spawnedPieces[i] = obj;
     }
+    
+    // Calculate cell size from first two pieces
+    if (spawnedPieces.Length >= 2)
+    {
+        RectTransform rect0 = spawnedPieces[0].GetComponent<RectTransform>();
+        RectTransform rect1 = spawnedPieces[1].GetComponent<RectTransform>();
+        
+        Vector2 pos0 = rect0.anchoredPosition;
+        Vector2 pos1 = rect1.anchoredPosition;
+        
+        cellSize = Mathf.Abs(pos1.x - pos0.x);
+        
+        Debug.Log($"🟢 DETECTED CELL SIZE: {cellSize} | Piece0: {pos0} | Piece1: {pos1} | DeltaX: {Mathf.Abs(pos1.x - pos0.x)}");
+    }
+    else
+    {
+        Debug.LogWarning($"⚠️ Only {spawnedPieces.Length} pieces spawned, cannot calculate cell size");
+    }
+    
+    // Verify all pieces have correctPosition set
+    for (int i = 0; i < spawnedPieces.Length; i++)
+    {
+        DragPiece drag = spawnedPieces[i].GetComponent<DragPiece>();
+        if (drag != null)
+        {
+            // Verify correctPosition is valid
+            if (drag.correctPosition == Vector2.zero && i > 0)
+            {
+                Debug.LogWarning($"[SPAWN WARNING] {spawnedPieces[i].name} has correctPosition = (0,0) - this may be incorrect!");
+            }
+        }
+    }
+    
+    AssignNeighbors();
+    
+    Debug.Log($"=== SPAWN COMPLETE: {spawnedPieces.Length} pieces created ===");
+}
 
     void GenerateSlots()
     {
@@ -654,7 +737,7 @@ public void RemoveFromDragOrder(DragPiece drag)
             puzzlePiece.group = new PuzzleGroup();
             puzzlePiece.group.AddPiece(puzzlePiece);
             
-            Debug.Log($"🔄 {piece.name} reset to independent group in bottom tray");
+           // Debug.Log($"🔄 {piece.name} reset to independent group in bottom tray");
         }
 
         int slot = GetEmptySlot();

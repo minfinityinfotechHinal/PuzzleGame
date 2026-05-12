@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using DG.Tweening;
 
 public class DragPiece : MonoBehaviour,
     IBeginDragHandler,
@@ -19,17 +20,16 @@ public class DragPiece : MonoBehaviour,
     public CanvasGroup canvasGroup;
 
     [Header("Settings")]
-    public float snapThreshold = 120f;
+    public float snapThreshold = 50f;
     public bool canDrag = false;
     public RectTransform dragArea;
-    public Vector2 correctPosition;
+    public Vector2 correctPosition; // Anchored position relative to PIECEPARENT
 
     public GameObject ghostImage;
     public GameObject particleObject;
     public PuzzlePiece piece;
 
     [SerializeField] private ScrollRect scrollRect;
-    [SerializeField] private float directionThreshold = 10f;
     [SerializeField] private float dragStartThreshold = 5f;
 
     private bool isScrolling = false;
@@ -39,7 +39,7 @@ public class DragPiece : MonoBehaviour,
     [SerializeField] private RectTransform bottomPanel;
 
     private bool parentChanged = false;
-    private Vector2 dragOffset;
+    private Vector3 worldOffset;
     private Vector2 dragStartPosition;
     private bool dragInitiated = false;
 
@@ -49,8 +49,6 @@ public class DragPiece : MonoBehaviour,
     [SerializeField] private float topPadding = 100f;
     [SerializeField] private float bottomPadding = 50f;
 
-    private Vector2 screenBoundsMin;
-    private Vector2 screenBoundsMax;
     private Vector2 pieceHalfSize;
 
     [Header("Raycast Settings")]
@@ -70,12 +68,7 @@ public class DragPiece : MonoBehaviour,
 
     [SerializeField] private float exitBottomPanelThreshold = 40f;
 
-    // =========================
-    // MERGE VARIABLES
-    // =========================
-
     private bool isMerging = false;
-
     private float mergeCooldown = 0.1f;
     private float lastMergeTime = -1f;
 
@@ -84,6 +77,9 @@ public class DragPiece : MonoBehaviour,
 
     private CanvasGroup shadowCanvasGroup;
 
+    private Transform originalParentBeforeDrag;
+    private int originalSiblingIndex;
+
     // =========================================================
     // AWAKE
     // =========================================================
@@ -91,9 +87,7 @@ public class DragPiece : MonoBehaviour,
     private void Awake()
     {
         piece = GetComponent<PuzzlePiece>();
-
         rectTransform = GetComponent<RectTransform>();
-
         mainCanvas = FindMainCanvas();
 
         if (mainCanvas != null)
@@ -105,9 +99,7 @@ public class DragPiece : MonoBehaviour,
         }
 
         canvasGroup = GetComponent<CanvasGroup>();
-
-        if (canvasGroup == null)
-            canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
 
         SetupRaycaster();
 
@@ -120,32 +112,23 @@ public class DragPiece : MonoBehaviour,
         if (piece != null && piece.shadowImage != null)
         {
             shadowCanvasGroup = piece.shadowImage.GetComponent<CanvasGroup>();
-
             if (shadowCanvasGroup == null)
                 shadowCanvasGroup = piece.shadowImage.gameObject.AddComponent<CanvasGroup>();
         }
 
-        if (ghostImage != null)
-            ghostImage.SetActive(false);
-
-        if (particleObject != null)
-            particleObject.SetActive(false);
+        if (ghostImage != null) ghostImage.SetActive(false);
+        if (particleObject != null) particleObject.SetActive(false);
 
         pieceHalfSize = rectTransform.sizeDelta * 0.5f;
-
         originalParent = transform.parent;
     }
 
     private void Start()
     {
-        CalculateScreenBounds();
-
         pieceImage = GetComponent<Image>();
-
         if (pieceImage != null)
         {
             pieceImage.raycastTarget = true;
-
             if (useAlphaHitTest)
                 pieceImage.alphaHitTestMinimumThreshold = alphaHitThreshold;
         }
@@ -157,305 +140,169 @@ public class DragPiece : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        if (isPlaced || !canDrag)
-            return;
-
+        if (isPlaced || !canDrag) return;
         parentChanged = false;
-
         dragStartPosition = eventData.position;
-
         dragInitiated = false;
-
         pieceTakenFromScrollView = IsInsideScrollView();
-
-        CalculateScreenBounds();
-
         pieceHalfSize = rectTransform.sizeDelta * 0.5f;
     }
 
-    public void OnPointerUp(PointerEventData eventData)
-    {
-    }
+    public void OnPointerUp(PointerEventData eventData) { }
 
     // =========================================================
-    // BEGIN DRAG
+    // BEGIN DRAG - Store WORLD offset
     // =========================================================
 
     public void OnBeginDrag(PointerEventData eventData)
+{
+    if (isPlaced || !canDrag) return;
+
+    float dragDistance = Vector2.Distance(eventData.position, dragStartPosition);
+    if (dragDistance < dragStartThreshold) return;
+
+    dragInitiated = true;
+
+    originalParentBeforeDrag = transform.parent;
+    originalSiblingIndex = rectTransform.GetSiblingIndex();
+    originalParent = transform.parent;
+    originalAnchoredPosition = rectTransform.anchoredPosition;
+
+    // Store offset in WORLD SPACE (independent of parent)
+    Vector3 pieceWorldPos = rectTransform.position;
+    Vector3 pointerWorldPos = ScreenToWorldPoint(eventData.position);
+    worldOffset = pieceWorldPos - pointerWorldPos;
+
+    canvasGroup.blocksRaycasts = true;
+
+    if (PuzzleManager.Instance != null)
     {
-        if (isPlaced || !canDrag)
-            return;
-
-        float dragDistance = Vector2.Distance(eventData.position, dragStartPosition);
-
-        if (dragDistance < dragStartThreshold)
-            return;
-
-        dragInitiated = true;
-
-        CalculateScreenBounds();
-
-        originalParent = transform.parent;
-        originalAnchoredPosition = rectTransform.anchoredPosition;
-
-        Vector2 currentCanvasPos = GetPieceCanvasLocalPosition();
-        Vector2 pointerCanvasPos = ScreenToCanvasLocal(eventData.position);
-
-        dragOffset = currentCanvasPos - pointerCanvasPos;
-
-        canvasGroup.blocksRaycasts = true;
-
-        // ============================================
-        // SORTING ORDER
-        // ============================================
-
-        if (PuzzleManager.Instance != null)
-        {
-            if (piece.group != null && piece.group.pieces.Count > 1)
-            {
-                PuzzleManager.Instance.BringGroupToFront(piece.group);
-            }
-            else
-            {
-                PuzzleManager.Instance.UpdateDragOrder(this);
-            }
-        }
-
-        // ============================================
-        // MOVE TO PIECE PARENT
-        // ============================================
-
-        // if (PuzzleManager.Instance != null &&
-        //     PuzzleManager.Instance.pieceParent != null)
-        // {
-        //     transform.SetParent(PuzzleManager.Instance.pieceParent, true);
-        //     transform.SetAsLastSibling();
-        // }
+        if (piece.group != null && piece.group.pieces.Count > 1)
+            PuzzleManager.Instance.BringGroupToFront(piece.group);
+        else
+            PuzzleManager.Instance.UpdateDragOrder(this);
     }
+    
+    // ✅ Remove from overflow queue if this piece is in overflow
+    // This ensures the piece is properly tracked when dragged from overflow
+    PuzzleManager.Instance.RemoveFromBottomWithoutFill(gameObject);
+}
 
     // =========================================================
     // DRAG
     // =========================================================
 
     public void OnDrag(PointerEventData eventData)
-{
-    if (isPlaced || !canDrag || !dragInitiated)
-        return;
-
-    // =====================================================
-    // IF PIECE ALREADY OUTSIDE BOTTOM PANEL
-    // THEN DIRECT FREE DRAG
-    // =====================================================
-
-    bool isFreePiece =
-        transform.parent == PuzzleManager.Instance.pieceParent;
-
-    if (isFreePiece)
     {
-        isDraggingPiece = true;
-        isScrolling = false;
+        if (isPlaced || !canDrag || !dragInitiated) return;
 
-        if (scrollRect != null)
+        // If already in pieceParent, drag freely
+        if (parentChanged && transform.parent == PuzzleManager.Instance.pieceParent)
         {
-            scrollRect.StopMovement();
-            scrollRect.enabled = false;
-        }
+            isDraggingPiece = true;
+            if (scrollRect != null) scrollRect.enabled = false;
 
-        Vector2 pointerCanvasPos =
-            ScreenToCanvasLocal(eventData.position);
+            Vector3 pointerWorld = ScreenToWorldPoint(eventData.position);
+            Vector3 newWorldPos = pointerWorld + worldOffset;
+            
+            // Move this piece
+            Vector3 delta = newWorldPos - rectTransform.position;
+            rectTransform.position = newWorldPos;
 
-        Vector2 targetLocalPos =
-            pointerCanvasPos + dragOffset;
-
-        targetLocalPos =
-            ClampPositionToScreen(targetLocalPos);
-
-        Vector2 currentPos =
-            GetPieceCanvasLocalPosition();
-
-        Vector2 delta =
-            targetLocalPos - currentPos;
-
-        // GROUP MOVE
-        if (piece.group != null &&
-            piece.group.pieces.Count > 1)
-        {
-            piece.group.Move(delta);
-        }
-        else
-        {
-            SetPieceCanvasLocalPosition(targetLocalPos);
-        }
-
-        // Ghost Preview
-        if (ghostImage != null &&
-            piece.group != null)
-        {
-            bool anyNearCorrect =
-                piece.group.IsAnyPieceNearCorrectPosition(
-                    snapThreshold * 1.5f);
-
-            ghostImage.SetActive(anyNearCorrect);
-        }
-
-        return;
-    }
-
-    // =====================================================
-    // BOTTOM PANEL SCROLL LOGIC
-    // =====================================================
-
-    Vector2 totalDelta =
-        eventData.position - dragStartPosition;
-
-    float absX = Mathf.Abs(totalDelta.x);
-    float absY = Mathf.Abs(totalDelta.y);
-
-    // =====================================================
-    // SCROLL MODE
-    // =====================================================
-
-   if (!isDraggingPiece)
-{
-    // TOTAL MOVEMENT
-    Vector2 totalMovement =
-        eventData.position - dragStartPosition;
-
-    float horizontal =
-        Mathf.Abs(totalMovement.x);
-
-    float vertical =
-        totalMovement.y;
-
-    // =====================================================
-    // SWITCH TO PIECE DRAG IF USER MOVES UP ENOUGH
-    // EVEN AFTER SCROLL STARTED
-    // =====================================================
-
-    if (vertical > verticalExitDistance)
-    {
-        // STOP SCROLL
-        if (scrollRect != null)
-        {
-            if (scrollDragStarted)
+            // Move group
+            if (piece.group != null && piece.group.pieces.Count > 1)
             {
-                scrollRect.OnEndDrag(eventData);
+                piece.group.Move(new Vector2(delta.x, delta.y));
             }
 
-            scrollRect.StopMovement();
-            scrollRect.enabled = false;
-        }
-
-        isScrolling = false;
-        scrollDragStarted = false;
-
-        // CHANGE PARENT
-        if (!parentChanged &&
-            PuzzleManager.Instance != null &&
-            PuzzleManager.Instance.pieceParent != null)
-        {
-            SetParentWithoutLayoutRebuild(
-                PuzzleManager.Instance.pieceParent);
-
-            transform.SetAsLastSibling();
-
-            parentChanged = true;
-        }
-
-        isDraggingPiece = true;
-
-        canvasGroup.blocksRaycasts = true;
-    }
-    else
-    {
-        // =====================================================
-        // NORMAL HORIZONTAL SCROLL
-        // =====================================================
-
-        if (horizontal > Mathf.Abs(vertical))
-        {
-            isScrolling = true;
-
-            canvasGroup.blocksRaycasts = false;
-
-            if (scrollRect != null)
+            // Ghost check
+            if (ghostImage != null)
             {
-                scrollRect.enabled = true;
-
-                if (!scrollDragStarted)
-                {
-                    scrollRect.OnBeginDrag(eventData);
-                    scrollDragStarted = true;
-                }
-
-                scrollRect.OnDrag(eventData);
+                Vector2 localPos = ConvertWorldToPieceParentAnchored(rectTransform.position);
+                float dist = Vector2.Distance(localPos, correctPosition);
+                ghostImage.SetActive(dist <= snapThreshold * 1.5f);
             }
-
             return;
         }
-    }
-}
 
-    // =====================================================
-    // DRAG PIECE
-    // =====================================================
-
-    if (isDraggingPiece)
-    {
-        Vector2 pointerCanvasPos =
-            ScreenToCanvasLocal(eventData.position);
-
-        Vector2 targetLocalPos =
-            pointerCanvasPos + dragOffset;
-
-        targetLocalPos =
-            ClampPositionToScreen(targetLocalPos);
-
-        Vector2 currentPos =
-            GetPieceCanvasLocalPosition();
-
-        Vector2 delta =
-            targetLocalPos - currentPos;
-
-        // GROUP MOVE
-        if (piece.group != null &&
-            piece.group.pieces.Count > 1)
+        // Still in bottom panel - decide: scroll or exit
+        if (!isDraggingPiece)
         {
-            piece.group.Move(delta);
+            Vector2 totalMovement = eventData.position - dragStartPosition;
+            float horizontal = Mathf.Abs(totalMovement.x);
+            float vertical = totalMovement.y;
+
+            if (vertical > verticalExitDistance)
+            {
+                // === EXIT BOTTOM PANEL ===
+                if (scrollRect != null)
+                {
+                    if (scrollDragStarted) scrollRect.OnEndDrag(eventData);
+                    scrollRect.enabled = false;
+                }
+
+                isScrolling = false;
+                scrollDragStarted = false;
+
+                if (!parentChanged && PuzzleManager.Instance != null)
+                {
+                    // Keep world position
+                    Vector3 worldPos = rectTransform.position;
+                    
+                    // Change parent
+                    transform.SetParent(PuzzleManager.Instance.pieceParent, true);
+                    
+                    // Restore world position
+                    rectTransform.position = worldPos;
+                    
+                    transform.SetAsLastSibling();
+                    parentChanged = true;
+                }
+
+                isDraggingPiece = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+            else if (horizontal > Mathf.Abs(vertical))
+            {
+                // Scrolling
+                isScrolling = true;
+                canvasGroup.blocksRaycasts = false;
+
+                if (scrollRect != null)
+                {
+                    scrollRect.enabled = true;
+                    if (!scrollDragStarted)
+                    {
+                        scrollRect.OnBeginDrag(eventData);
+                        scrollDragStarted = true;
+                    }
+                    scrollRect.OnDrag(eventData);
+                }
+                return;
+            }
         }
-        else
+
+        // Drag in pieceParent
+        if (isDraggingPiece)
         {
-            SetPieceCanvasLocalPosition(targetLocalPos);
+            Vector3 pointerWorld = ScreenToWorldPoint(eventData.position);
+            Vector3 newWorldPos = pointerWorld + worldOffset;
+            
+            Vector3 delta = newWorldPos - rectTransform.position;
+            rectTransform.position = newWorldPos;
+
+            if (piece.group != null && piece.group.pieces.Count > 1)
+            {
+                piece.group.Move(new Vector2(delta.x, delta.y));
+            }
+
+            if (ghostImage != null)
+            {
+                Vector2 localPos = ConvertWorldToPieceParentAnchored(rectTransform.position);
+                float dist = Vector2.Distance(localPos, correctPosition);
+                ghostImage.SetActive(dist <= snapThreshold * 1.5f);
+            }
         }
-
-        // Ghost Preview
-        if (ghostImage != null &&
-            piece.group != null)
-        {
-            bool anyNearCorrect =
-                piece.group.IsAnyPieceNearCorrectPosition(
-                    snapThreshold * 1.5f);
-
-            ghostImage.SetActive(anyNearCorrect);
-        }
-    }
-}
-    private bool HasExitedBottomPanelByPiecePosition()
-    {
-        if (bottomPanel == null)
-            return true;
-
-        Vector3[] corners = new Vector3[4];
-
-        bottomPanel.GetWorldCorners(corners);
-
-        float panelTopY = corners[1].y;
-
-        float pieceBottomY =
-            rectTransform.position.y -
-            (rectTransform.rect.height * rectTransform.lossyScale.y * 0.5f);
-
-        return pieceBottomY > panelTopY + exitBottomPanelThreshold;
     }
 
     // =========================================================
@@ -464,91 +311,296 @@ public class DragPiece : MonoBehaviour,
 
     public void OnEndDrag(PointerEventData eventData)
     {
-        if (!dragInitiated)
-        {
-            ReEnableScrollView();
-            return;
-        }
+        if (!dragInitiated) { ReEnableScrollView(); return; }
 
         if (scrollDragStarted && scrollRect != null)
-        {
             scrollRect.OnEndDrag(eventData);
-        }
 
         isScrolling = false;
         isDraggingPiece = false;
         scrollDragStarted = false;
-
         dragInitiated = false;
 
         canvasGroup.blocksRaycasts = true;
-
         ReEnableScrollView();
 
-        if (isPlaced)
-            return;
-
+        if (isPlaced) return;
         ghostImage?.SetActive(false);
 
-        // =====================================================
-        // SNAP TO CORRECT POSITION
-        // =====================================================
+        bool isOverBottom = IsPointerOverBottomPanel(eventData);
 
-        float distance = Vector2.Distance(rectTransform.anchoredPosition, correctPosition);
-
-        if (distance <= snapThreshold)
+        // ✅ Check snap ONLY if piece was moved to pieceParent
+        if (parentChanged && transform.parent == PuzzleManager.Instance.pieceParent)
         {
-            if (particleObject != null)
-                particleObject.SetActive(true);
+            // Convert world position to pieceParent anchored space
+            Vector2 currentPos = ConvertWorldToPieceParentAnchored(rectTransform.position);
+            float distance = Vector2.Distance(currentPos, correctPosition);
 
-            StartCoroutine(SmoothSnapToCorrectPositions());
+            if (enableDebugLogs)
+                Debug.Log($"🎯 {name} | AnchoredPos: {currentPos} | Target: {correctPosition} | Distance: {distance:F1} | Threshold: {snapThreshold}");
 
-            return;
-        }
-
-        // =====================================================
-        // GROUP SNAP CHECK
-        // =====================================================
-
-        if (piece.group != null && piece.group.pieces.Count > 1)
-        {
-            PuzzlePiece closestPiece = piece.group.GetClosestToCorrectPosition();
-
-            if (closestPiece != null)
+            if (distance <= snapThreshold)
             {
-                DragPiece closestDrag = closestPiece.GetComponent<DragPiece>();
+                if (enableDebugLogs) Debug.Log($"✅ SNAP! {name} placed!");
+                if (particleObject != null) particleObject.SetActive(true);
+                PlacePieceImmediate();
+                return;
+            }
 
-                RectTransform closestRect =
-                    closestPiece.GetComponent<RectTransform>();
-
-                if (closestDrag != null && closestRect != null)
+            // GROUP SNAP CHECK
+            if (piece.group != null && piece.group.pieces.Count > 1)
+            {
+                foreach (var p in piece.group.pieces)
                 {
-                    float closestDist =
-                        Vector2.Distance(
-                            closestRect.anchoredPosition,
-                            closestDrag.correctPosition
-                        );
-
-                    if (closestDist <= snapThreshold)
+                    DragPiece drag = p.GetComponent<DragPiece>();
+                    if (drag != null && !drag.isPlaced)
                     {
-                        piece = closestPiece;
-
-                        if (particleObject != null)
-                            particleObject.SetActive(true);
-
-                        StartCoroutine(SmoothSnapToCorrectPositions());
-
-                        return;
+                        Vector2 groupLocalPos = ConvertWorldToPieceParentAnchored(drag.rectTransform.position);
+                        float pDist = Vector2.Distance(groupLocalPos, drag.correctPosition);
+                        if (pDist <= snapThreshold)
+                        {
+                            if (enableDebugLogs) Debug.Log($"✅ GROUP SNAP! {drag.name}");
+                            piece = p;
+                            if (particleObject != null) particleObject.SetActive(true);
+                            PlacePieceImmediate();
+                            return;
+                        }
                     }
                 }
             }
         }
 
-        // =====================================================
-        // MERGE
-        // =====================================================
+        // BOTTOM PANEL RETURN
+        if (isOverBottom)
+        {
+            if (enableDebugLogs) Debug.Log($"📥 {name} returning to Bottom Panel");
+            ReturnToBottomPanel();
+            return;
+        }
+
+        // RETURN TO ORIGINAL
+        if (originalParentBeforeDrag != null)
+        {
+            if (enableDebugLogs) Debug.Log($"📤 {name} returning to original parent: {originalParentBeforeDrag.name}");
+            ReturnToContentParent();
+            return;
+        }
 
         CheckForMerge();
+    }
+
+    // =========================================================
+    // HELPER: Convert world position to pieceParent anchored position
+    // =========================================================
+    private Vector2 ConvertWorldToPieceParentAnchored(Vector3 worldPos)
+    {
+        if (PuzzleManager.Instance == null || PuzzleManager.Instance.pieceParent == null)
+            return Vector2.zero;
+
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            PuzzleManager.Instance.pieceParent as RectTransform,
+            RectTransformUtility.WorldToScreenPoint(renderCamera, worldPos),
+            renderCamera,
+            out localPoint
+        );
+        return localPoint;
+    }
+
+    // =========================================================
+    // PLACE PIECE
+    // =========================================================
+
+   // =========================================================
+// PLACE PIECE - Sets sorting order to 0 (piece) and 1 (shadow)
+// =========================================================
+
+private void PlacePieceImmediate()
+{
+    PuzzleGroup currentGroup = piece.group;
+
+    if (currentGroup != null && currentGroup.pieces.Count > 1)
+    {
+        // === GROUP PLACEMENT ===
+        Debug.Log($"[GROUP PLACE] Placing group with {currentGroup.pieces.Count} pieces");
+        
+        foreach (var p in currentGroup.pieces)
+        {
+            DragPiece d = p.GetComponent<DragPiece>();
+            if (d != null && !d.isPlaced)
+            {
+                d.isPlaced = true;
+                d.canDrag = false;
+                
+                // Store current world position for debug
+                Vector3 worldBeforeParent = d.rectTransform.position;
+                
+                // Change parent to pieceParent (worldPositionStays = true preserves world position temporarily)
+                d.rectTransform.SetParent(PuzzleManager.Instance.pieceParent, true);
+                
+                // Calculate target world position from correctPosition (which is in pieceParent local space)
+                Vector3 targetWorldPos = PuzzleManager.Instance.pieceParent.TransformPoint(
+                    new Vector3(d.correctPosition.x, d.correctPosition.y, 0)
+                );
+                
+                // Set to target world position
+                d.rectTransform.position = new Vector3(targetWorldPos.x, targetWorldPos.y, d.rectTransform.position.z);
+                d.rectTransform.localScale = Vector3.one;
+                d.rectTransform.localRotation = Quaternion.identity;
+                
+                // ✅ SET SORTING ORDER: Piece = 0, Shadow = 1
+                d.SetPieceSortingOrder(0);
+                
+                Debug.Log($"[GROUP PLACE] {d.name} | " +
+                          $"WorldBefore: {worldBeforeParent} | " +
+                          $"TargetWorld: {targetWorldPos} | " +
+                          $"FinalWorld: {d.rectTransform.position} | " +
+                          $"FinalAnchored: {d.rectTransform.anchoredPosition} | " +
+                          $"CorrectPos: {d.correctPosition} | " +
+                          $"SortingOrder: Piece=0, Shadow=1");
+                
+                if (d.ghostImage != null) d.ghostImage.SetActive(true);
+                d.rectTransform.DOScale(Vector3.one * 1.05f, 0.07f)
+                    .OnComplete(() => d.rectTransform.DOScale(Vector3.one, 0.07f));
+                    
+                if (d.canvasGroup != null) 
+                { 
+                    d.canvasGroup.blocksRaycasts = false; 
+                    d.canvasGroup.alpha = 1f; 
+                }
+                
+                if (d.particleObject != null)
+                {
+                    d.particleObject.SetActive(true);
+                    StartCoroutine(DisableParticleAfterDelay(d.particleObject, 2f));
+                }
+            }
+        }
+        
+        foreach (var p in currentGroup.pieces)
+            p.GetComponent<DragPiece>().MergeWithNeighbours();
+            
+        PuzzleManager.Instance.OnGroupPlaced(currentGroup.pieces);
+    }
+    else
+    {
+        // === SINGLE PIECE PLACEMENT ===
+        isPlaced = true;
+        canDrag = false;
+        
+        // Store current world position for debug
+        Vector3 worldBeforeParent = rectTransform.position;
+        
+        // Change parent to pieceParent (worldPositionStays = true preserves world position temporarily)
+        rectTransform.SetParent(PuzzleManager.Instance.pieceParent, true);
+        
+        // Calculate target world position from correctPosition (which is in pieceParent local space)
+        Vector3 targetWorldPos = PuzzleManager.Instance.pieceParent.TransformPoint(
+            new Vector3(correctPosition.x, correctPosition.y, 0)
+        );
+        
+        // Set to target world position
+        rectTransform.position = new Vector3(targetWorldPos.x, targetWorldPos.y, rectTransform.position.z);
+        rectTransform.localScale = Vector3.one;
+        rectTransform.localRotation = Quaternion.identity;
+        
+        // ✅ SET SORTING ORDER: Piece = 0, Shadow = 1
+        SetPieceSortingOrder(0);
+        
+        Debug.Log($"[PLACE] {name} | " +
+                  $"WorldBefore: {worldBeforeParent} | " +
+                  $"TargetWorld: {targetWorldPos} | " +
+                  $"FinalWorld: {rectTransform.position} | " +
+                  $"FinalAnchored: {rectTransform.anchoredPosition} | " +
+                  $"CorrectPos: {correctPosition} | " +
+                  $"SortingOrder: Piece=0, Shadow=1");
+        
+        if (ghostImage != null) ghostImage.SetActive(true);
+        rectTransform.DOScale(Vector3.one * 1.05f, 0.07f)
+            .OnComplete(() => rectTransform.DOScale(Vector3.one, 0.07f));
+            
+        if (canvasGroup != null) 
+        { 
+            canvasGroup.blocksRaycasts = false; 
+            canvasGroup.alpha = 1f; 
+        }
+        
+        if (particleObject != null)
+        {
+            particleObject.SetActive(true);
+            StartCoroutine(DisableParticleAfterDelay(particleObject, 2f));
+        }
+        
+        MergeWithNeighbours();
+        PuzzleManager.Instance.OnPiecePlaced(this);
+    }
+    
+    // Force canvas update
+    Canvas.ForceUpdateCanvases();
+    
+    // ✅ Refresh sorting orders - this will properly set all placed pieces to low orders
+    PuzzleManager.Instance.RefreshSortingOrdersFromList();
+}
+    
+    private IEnumerator DisableParticleAfterDelay(GameObject particle, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (particle != null)
+            particle.SetActive(false);
+    }
+
+    // =========================================================
+    // BOTTOM PANEL
+    // =========================================================
+
+    private bool IsPointerOverBottomPanel(PointerEventData eventData)
+    {
+        if (bottomPanel == null) return false;
+        Camera cam = (mainCanvas != null && mainCanvas.renderMode == RenderMode.ScreenSpaceOverlay) 
+            ? null : mainCanvas?.worldCamera;
+        Vector2 localPoint;
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(bottomPanel, eventData.position, cam, out localPoint))
+            return bottomPanel.rect.Contains(localPoint);
+        return false;
+    }
+
+    private void ReturnToBottomPanel()
+    {
+        Vector3 worldPos = rectTransform.position;
+        
+        // Handle group pieces too
+        if (piece.group != null && piece.group.pieces.Count > 1)
+        {
+            foreach (var p in piece.group.pieces)
+            {
+                DragPiece d = p.GetComponent<DragPiece>();
+                if (d != null && d != this)
+                {
+                    Vector3 groupWorldPos = d.rectTransform.position;
+                    d.transform.SetParent(PuzzleManager.Instance.bottomParent, true);
+                    d.rectTransform.position = groupWorldPos;
+                    d.parentChanged = false;
+                }
+            }
+        }
+
+        transform.SetParent(PuzzleManager.Instance.bottomParent, true);
+        rectTransform.position = worldPos;
+        rectTransform.localScale = Vector3.one;
+        parentChanged = false;
+        PuzzleManager.Instance.ForceRearrangeBottom();
+    }
+
+    private void ReturnToContentParent()
+    {
+        Vector3 worldPos = rectTransform.position;
+        transform.SetParent(originalParentBeforeDrag, true);
+        rectTransform.position = worldPos;
+        rectTransform.localScale = Vector3.one;
+        parentChanged = false;
+        
+        if (originalSiblingIndex >= 0 && originalSiblingIndex < transform.parent.childCount)
+            transform.SetSiblingIndex(originalSiblingIndex);
     }
 
     // =========================================================
@@ -557,155 +609,79 @@ public class DragPiece : MonoBehaviour,
 
     private void CheckForMerge()
     {
-        if (Time.time - lastMergeTime < mergeCooldown)
-            return;
-
-        if (isMerging || piece == null)
-            return;
+        if (Time.time - lastMergeTime < mergeCooldown) return;
+        if (isMerging || piece == null) return;
 
         foreach (var other in PuzzleManager.Instance.allPieces)
         {
-            if (other == piece)
-                continue;
-
-            if (other.group == piece.group)
-                continue;
+            if (other == piece) continue;
+            if (other.group == piece.group) continue;
 
             float physicalDistance = Vector2.Distance(
                 piece.GetComponent<RectTransform>().anchoredPosition,
-                other.GetComponent<RectTransform>().anchoredPosition
-            );
+                other.GetComponent<RectTransform>().anchoredPosition);
 
             float maxMergeDistance = PuzzleManager.Instance.cellSize * 2.5f;
+            if (physicalDistance > maxMergeDistance) continue;
 
-            if (physicalDistance > maxMergeDistance)
-                continue;
-
-            bool neighbor = IsNeighbor(other);
-
-            bool correctMatch = IsCorrectMatch(other);
-
-            if (neighbor && correctMatch)
+            if (IsNeighbor(other) && IsCorrectMatch(other) && IsEdgeMatch(other))
             {
-                bool edgeMatch = IsEdgeMatch(other);
-
-                if (edgeMatch)
-                {
-                    lastMergeTime = Time.time;
-
-                    SnapExactlyAndMerge(other);
-
-                    break;
-                }
+                lastMergeTime = Time.time;
+                SnapExactlyAndMerge(other);
+                break;
             }
         }
     }
 
-    private bool IsNeighbor(PuzzlePiece other)
-    {
-        return other == piece.left ||
-               other == piece.right ||
-               other == piece.top ||
-               other == piece.bottom;
+    private bool IsNeighbor(PuzzlePiece other) 
+    { 
+        return other == piece.left || other == piece.right || other == piece.top || other == piece.bottom; 
     }
 
     private bool IsCorrectMatch(PuzzlePiece other)
     {
-        if (other == piece.right &&
-            other.col == piece.col + 1 &&
-            other.row == piece.row)
-            return true;
-
-        if (other == piece.left &&
-            other.col == piece.col - 1 &&
-            other.row == piece.row)
-            return true;
-
-        if (other == piece.top &&
-            other.row == piece.row - 1 &&
-            other.col == piece.col)
-            return true;
-
-        if (other == piece.bottom &&
-            other.row == piece.row + 1 &&
-            other.col == piece.col)
-            return true;
-
+        if (other == piece.right && other.col == piece.col + 1 && other.row == piece.row) return true;
+        if (other == piece.left && other.col == piece.col - 1 && other.row == piece.row) return true;
+        if (other == piece.top && other.row == piece.row - 1 && other.col == piece.col) return true;
+        if (other == piece.bottom && other.row == piece.row + 1 && other.col == piece.col) return true;
         return false;
     }
 
     private bool IsEdgeMatch(PuzzlePiece other)
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
-
         RectTransform otherRect = other.GetComponent<RectTransform>();
-
-        Vector2 myPos = myRect.anchoredPosition;
-
-        Vector2 otherPos = otherRect.anchoredPosition;
-
-        float dist = Vector2.Distance(myPos, otherPos);
-
-        float maxDist =
-            Mathf.Max(myRect.rect.width, myRect.rect.height) * 1.5f;
-
+        float dist = Vector2.Distance(myRect.anchoredPosition, otherRect.anchoredPosition);
+        float maxDist = Mathf.Max(myRect.rect.width, myRect.rect.height) * 1.5f;
         return dist <= maxDist && dist >= 20f;
     }
 
     private void SnapExactlyAndMerge(PuzzlePiece other)
     {
         RectTransform myRect = piece.GetComponent<RectTransform>();
-
         RectTransform otherRect = other.GetComponent<RectTransform>();
-
-        DragPiece myDrag = piece.GetComponent<DragPiece>();
-
         DragPiece otherDrag = other.GetComponent<DragPiece>();
+        if (otherDrag == null) return;
 
-        if (myDrag == null || otherDrag == null)
-            return;
-
-        Vector2 correctOffset =
-            myDrag.correctPosition - otherDrag.correctPosition;
-
-        Vector2 targetMyPos =
-            otherRect.anchoredPosition + correctOffset;
-
-        Vector2 offset =
-            targetMyPos - myRect.anchoredPosition;
-
-        if (offset.magnitude > snapThreshold * 3f)
-            return;
+        Vector2 correctOffset = correctPosition - otherDrag.correctPosition;
+        Vector2 targetMyPos = otherRect.anchoredPosition + correctOffset;
+        Vector2 offset = targetMyPos - myRect.anchoredPosition;
+        if (offset.magnitude > snapThreshold * 3f) return;
 
         foreach (var p in piece.group.pieces)
         {
             RectTransform r = p.GetComponent<RectTransform>();
-
-            if (r != null)
-            {
-                r.SetParent(PuzzleManager.Instance.pieceParent, true);
-
-                r.anchoredPosition += offset;
-            }
+            if (r != null) { r.SetParent(PuzzleManager.Instance.pieceParent, true); r.anchoredPosition += offset; }
         }
 
         if (otherRect.parent == PuzzleManager.Instance.pieceParent)
         {
             PuzzleGroup otherGroup = other.group;
-
             PuzzleGroup myGroup = piece.group;
-
-            if (otherGroup != null &&
-                myGroup != null &&
-                otherGroup != myGroup)
+            if (otherGroup != null && myGroup != null && otherGroup != myGroup)
             {
                 myGroup.Merge(otherGroup);
-
-                if (PuzzleManager.Instance != null)
-                {
-                    PuzzleManager.Instance.BringGroupToFront(myGroup);
-                }
-
+                PuzzleManager.Instance.BringGroupToFront(myGroup);
                 CheckGroupSnapAfterMerge(myGroup);
             }
         }
@@ -713,411 +689,153 @@ public class DragPiece : MonoBehaviour,
 
     private void CheckGroupSnapAfterMerge(PuzzleGroup mergedGroup)
     {
-        if (mergedGroup == null)
-            return;
-
-        bool shouldSnap = false;
-
-        PuzzlePiece closestPiece = null;
-
-        float closestDistance = float.MaxValue;
-
+        if (mergedGroup == null) return;
         foreach (var p in mergedGroup.pieces)
         {
             DragPiece drag = p.GetComponent<DragPiece>();
-
-            RectTransform rect = p.GetComponent<RectTransform>();
-
-            if (drag != null && rect != null && !drag.isPlaced)
+            if (drag != null && !drag.isPlaced)
             {
-                float dist =
-                    Vector2.Distance(
-                        rect.anchoredPosition,
-                        drag.correctPosition
-                    );
-
-                if (dist <= snapThreshold &&
-                    dist < closestDistance)
-                {
-                    closestDistance = dist;
-                    closestPiece = p;
-                    shouldSnap = true;
-                }
-            }
-        }
-
-        if (shouldSnap && closestPiece != null)
-        {
-            piece = closestPiece;
-
-            StartCoroutine(SmoothSnapToCorrectPositions());
-        }
-    }
-
-    // =========================================================
-    // SNAP
-    // =========================================================
-
-    IEnumerator SmoothSnapToCorrectPositions()
-    {
-        if (piece == null || piece.group == null)
-            yield break;
-
-        Dictionary<PuzzlePiece, Vector2> startPositions =
-            new Dictionary<PuzzlePiece, Vector2>();
-
-        Dictionary<PuzzlePiece, Vector2> targetPositions =
-            new Dictionary<PuzzlePiece, Vector2>();
-
-        List<PuzzlePiece> piecesToSnap =
-            new List<PuzzlePiece>();
-
-        foreach (var p in piece.group.pieces)
-        {
-            DragPiece drag = p.GetComponent<DragPiece>();
-
-            RectTransform r = p.GetComponent<RectTransform>();
-
-            if (drag != null &&
-                r != null &&
-                !drag.isPlaced)
-            {
-                float dist =
-                    Vector2.Distance(
-                        r.anchoredPosition,
-                        drag.correctPosition
-                    );
-
+                float dist = Vector2.Distance(drag.rectTransform.anchoredPosition, drag.correctPosition);
                 if (dist <= snapThreshold)
                 {
-                    startPositions[p] = r.anchoredPosition;
-                    targetPositions[p] = drag.correctPosition;
-
-                    piecesToSnap.Add(p);
+                    piece = p;
+                    PlacePieceImmediate();
+                    return;
                 }
             }
         }
-
-        if (piecesToSnap.Count == 0)
-            yield break;
-
-        float duration = 0.35f;
-
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime / duration;
-
-            float progress =
-                t * t * (3f - 2f * t);
-
-            foreach (var p in piecesToSnap)
-            {
-                RectTransform r =
-                    p.GetComponent<RectTransform>();
-
-                if (r != null)
-                {
-                    r.anchoredPosition =
-                        Vector2.Lerp(
-                            startPositions[p],
-                            targetPositions[p],
-                            progress
-                        );
-                }
-            }
-
-            yield return null;
-        }
-
-        foreach (var p in piecesToSnap)
-        {
-            RectTransform r =
-                p.GetComponent<RectTransform>();
-
-            DragPiece drag =
-                p.GetComponent<DragPiece>();
-
-            if (r != null)
-            {
-                r.anchoredPosition =
-                    targetPositions[p];
-            }
-
-            if (drag != null)
-            {
-                drag.isPlaced = true;
-                drag.canDrag = false;
-
-                if (drag.canvasGroup != null)
-                {
-                    drag.canvasGroup.blocksRaycasts = false;
-                    drag.canvasGroup.alpha = 1f;
-                }
-
-                if (drag.ghostImage != null)
-                    drag.ghostImage.SetActive(true);
-
-                if (drag.particleObject != null)
-                    drag.particleObject.SetActive(true);
-            }
-        }
-
-        CheckCompletion();
     }
 
-    // =========================================================
-    // SORTING
-    // =========================================================
-
-    public void SetPieceSortingOrder(int baseOrder)
+    private void MergeWithNeighbours()
     {
-        int pieceOrder = baseOrder;
+        float cell = PuzzleManager.Instance.cellSize;
+        TryMergeWith(piece.left, new Vector2(-cell, 0));
+        TryMergeWith(piece.right, new Vector2(cell, 0));
+        TryMergeWith(piece.top, new Vector2(0, cell));
+        TryMergeWith(piece.bottom, new Vector2(0, -cell));
+    }
 
-        int shadowOrder = baseOrder + 1;
+    private void TryMergeWith(PuzzlePiece neighbour, Vector2 expectedOffset)
+    {
+        if (neighbour == null) return;
+        DragPiece nd = neighbour.GetComponent<DragPiece>();
+        if (nd == null || !nd.isPlaced) return;
+        if (piece.group != null && piece.group == neighbour.group) return;
+        
+        Vector2 actualOffset = nd.rectTransform.anchoredPosition - rectTransform.anchoredPosition;
+        if (Vector2.Distance(actualOffset, expectedOffset) > 5f) return;
+        
+        PuzzleGroup myGroup = piece.group ?? CreateSoloGroup();
+        PuzzleGroup neighbourGroup = neighbour.group ?? nd.CreateSoloGroup();
+        if (myGroup == neighbourGroup) return;
+        
+        PuzzleGroup dominant = myGroup.pieces.Count >= neighbourGroup.pieces.Count ? myGroup : neighbourGroup;
+        PuzzleGroup absorbed = dominant == myGroup ? neighbourGroup : myGroup;
+        foreach (var p in absorbed.pieces) { p.group = dominant; dominant.pieces.Add(p); }
+        absorbed.pieces = new List<PuzzlePiece>();
+    }
 
-        Canvas mainCanvas = GetComponent<Canvas>();
-
-        if (mainCanvas == null)
-        {
-            mainCanvas = gameObject.AddComponent<Canvas>();
-
-            GraphicRaycaster raycaster =
-                GetComponent<GraphicRaycaster>();
-
-            if (raycaster == null)
-            {
-                gameObject.AddComponent<GraphicRaycaster>();
-            }
-        }
-
-        mainCanvas.overrideSorting = true;
-        mainCanvas.sortingOrder = pieceOrder;
-
-        if (piece != null && piece.shadowImage != null)
-        {
-            Canvas shadowCanvas =
-                piece.shadowImage.GetComponent<Canvas>();
-
-            if (shadowCanvas == null)
-            {
-                shadowCanvas =
-                    piece.shadowImage.gameObject.AddComponent<Canvas>();
-            }
-
-            shadowCanvas.overrideSorting = true;
-            shadowCanvas.sortingOrder = shadowOrder;
-        }
+    private PuzzleGroup CreateSoloGroup() 
+    { 
+        PuzzleGroup g = new PuzzleGroup(); 
+        g.AddPiece(piece); 
+        piece.group = g; 
+        return g; 
     }
 
     // =========================================================
     // HELPERS
     // =========================================================
 
-    private bool IsInsideScrollView()
+    private Vector3 ScreenToWorldPoint(Vector2 screenPosition)
     {
-        return GetComponentInParent<ScrollRect>() != null;
-    }
-
-    private void ReEnableScrollView()
-    {
-        if (scrollRect != null)
-            scrollRect.enabled = true;
-    }
-
-    public void OnInitializePotentialDrag(PointerEventData eventData)
-    {
-        if (pieceTakenFromScrollView && scrollRect != null)
-        {
-            scrollRect.OnInitializePotentialDrag(eventData);
-        }
-    }
-
-    private bool HasExitedBottomPanel(PointerEventData eventData)
-    {
-        if (bottomPanel == null)
-            return true;
-
-        Vector2 localPoint;
-
-        RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            bottomPanel,
-            eventData.position,
-            renderCamera,
-            out localPoint
-        );
-
-        Rect rect = bottomPanel.rect;
-
-        rect.yMax += exitBottomPanelThreshold;
-
-        return !rect.Contains(localPoint);
-    }
-
-    private Vector2 ClampPositionToScreen(Vector2 localPosition)
-    {
-        if (!useStrictScreenBounds)
-            return localPosition;
-
-        pieceHalfSize = rectTransform.sizeDelta * 0.5f;
-
-        float minX = screenBoundsMin.x + pieceHalfSize.x;
-        float maxX = screenBoundsMax.x - pieceHalfSize.x;
-
-        float minY = screenBoundsMin.y + pieceHalfSize.y;
-        float maxY = screenBoundsMax.y - pieceHalfSize.y;
-
-        float clampedX =
-            Mathf.Clamp(localPosition.x, minX, maxX);
-
-        float clampedY =
-            Mathf.Clamp(localPosition.y, minY, maxY);
-
-        return new Vector2(clampedX, clampedY);
-    }
-
-    private void CalculateScreenBounds()
-    {
-        if (mainCanvas == null || canvasRectTransform == null)
-            return;
-
-        Vector2 canvasSize = canvasRectTransform.sizeDelta;
-
-        float halfWidth = canvasSize.x * 0.5f;
-        float halfHeight = canvasSize.y * 0.5f;
-
-        screenBoundsMin = new Vector2(
-            -halfWidth + screenEdgePadding,
-            -halfHeight + bottomPadding
-        );
-
-        screenBoundsMax = new Vector2(
-            halfWidth - screenEdgePadding,
-            halfHeight - topPadding
-        );
-    }
-
-    private Canvas FindMainCanvas()
-    {
-        Canvas[] allCanvases =
-            FindObjectsByType<Canvas>(FindObjectsSortMode.None);
-
-        foreach (Canvas c in allCanvases)
-        {
-            if (c.transform.parent == null)
-                return c;
-        }
-
-        return GetComponentInParent<Canvas>();
-    }
-
-    private void SetupRaycaster()
-    {
-        Canvas pieceCanvas = GetComponent<Canvas>();
-
-        if (pieceCanvas == null)
-        {
-            pieceCanvas = gameObject.AddComponent<Canvas>();
-            pieceCanvas.overrideSorting = true;
-        }
-
-        GraphicRaycaster raycaster =
-            GetComponent<GraphicRaycaster>();
-
-        if (raycaster == null)
-        {
-            gameObject.AddComponent<GraphicRaycaster>();
-        }
-    }
-
-    private Vector2 ScreenToCanvasLocal(Vector2 screenPosition)
-    {
-        Vector2 localPoint;
-
-        RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            canvasRectTransform,
-            screenPosition,
-            renderCamera,
-            out localPoint
-        );
-
-        return localPoint;
-    }
-
-    private Vector2 GetPieceCanvasLocalPosition()
-    {
-        Vector2 screenPos =
-            RectTransformUtility.WorldToScreenPoint(
-                renderCamera,
-                rectTransform.position
-            );
-
-        return ScreenToCanvasLocal(screenPos);
-    }
-
-    private void SetPieceCanvasLocalPosition(Vector2 localPosition)
-    {
+        Camera cam = renderCamera;
         Vector3 worldPos;
-
-        RectTransformUtility.ScreenPointToWorldPointInRectangle(
-            canvasRectTransform,
-            RectTransformUtility.WorldToScreenPoint(
-                renderCamera,
-                canvasRectTransform.TransformPoint(localPosition)
-            ),
-            renderCamera,
-            out worldPos
-        );
-
-        rectTransform.position = worldPos;
+        RectTransformUtility.ScreenPointToWorldPointInRectangle(canvasRectTransform, screenPosition, cam, out worldPos);
+        return worldPos;
     }
 
-    private void SetParentWithoutLayoutRebuild(Transform newParent)
-    {
-        Vector3 worldPosition = rectTransform.position;
-
-        transform.SetParent(newParent, true);
-
-        rectTransform.position = worldPosition;
+    private bool IsInsideScrollView() => GetComponentInParent<ScrollRect>() != null;
+    
+    private void ReEnableScrollView() 
+    { 
+        if (scrollRect != null) 
+            scrollRect.enabled = true; 
+    }
+    
+    public void OnInitializePotentialDrag(PointerEventData eventData) 
+    { 
+        if (pieceTakenFromScrollView && scrollRect != null) 
+            scrollRect.OnInitializePotentialDrag(eventData); 
+    }
+    
+    private Canvas FindMainCanvas() 
+    { 
+        Canvas[] all = FindObjectsByType<Canvas>(FindObjectsSortMode.None); 
+        foreach (Canvas c in all) 
+            if (c.transform.parent == null) 
+                return c; 
+        return GetComponentInParent<Canvas>(); 
+    }
+    
+    private void SetupRaycaster() 
+    { 
+        Canvas pc = GetComponent<Canvas>(); 
+        if (pc == null) 
+        { 
+            pc = gameObject.AddComponent<Canvas>(); 
+            pc.overrideSorting = true; 
+        } 
+        if (GetComponent<GraphicRaycaster>() == null) 
+            gameObject.AddComponent<GraphicRaycaster>(); 
+    }
+    
+    public void ResetPiece() 
+    { 
+        isPlaced = false; 
+        canDrag = true; 
+        parentChanged = false;
+        if (canvasGroup != null) 
+        { 
+            canvasGroup.blocksRaycasts = true; 
+            canvasGroup.alpha = 1f; 
+        } 
+        rectTransform.localScale = Vector3.one;
+    }
+    
+    public void CheckCompletion() 
+    { 
+        int count = 0; 
+        foreach (var p in PuzzleManager.Instance.allPieces) 
+        { 
+            DragPiece d = p.GetComponent<DragPiece>(); 
+            if (d != null && d.isPlaced) 
+                count++; 
+        } 
+        if (count >= PuzzleManager.Instance.TotalPieces) 
+            PuzzleManager.Instance.ShowCompletionCanvas(); 
     }
 
-    // =========================================================
-    // RESET
-    // =========================================================
-
-    public void ResetPiece()
+    public void SetPieceSortingOrder(int baseOrder)
     {
-        isPlaced = false;
-
-        canDrag = true;
-
-        if (canvasGroup != null)
-        {
-            canvasGroup.blocksRaycasts = true;
-            canvasGroup.alpha = 1f;
+        int pieceOrder = baseOrder, shadowOrder = baseOrder + 1;
+        Canvas mc = GetComponent<Canvas>();
+        if (mc == null) 
+        { 
+            mc = gameObject.AddComponent<Canvas>(); 
+            if (GetComponent<GraphicRaycaster>() == null) 
+                gameObject.AddComponent<GraphicRaycaster>(); 
         }
-    }
-
-    // =========================================================
-    // COMPLETION
-    // =========================================================
-
-    public void CheckCompletion()
-    {
-        int count = 0;
-
-        foreach (var p in PuzzleManager.Instance.allPieces)
+        mc.overrideSorting = true; 
+        mc.sortingOrder = pieceOrder;
+        
+        if (piece != null && piece.shadowImage != null)
         {
-            DragPiece drag = p.GetComponent<DragPiece>();
-
-            if (drag != null && drag.isPlaced)
-                count++;
-        }
-
-        if (count >= PuzzleManager.Instance.TotalPieces)
-        {
-            PuzzleManager.Instance.ShowCompletionCanvas();
+            Canvas sc = piece.shadowImage.GetComponent<Canvas>();
+            if (sc == null) 
+                sc = piece.shadowImage.gameObject.AddComponent<Canvas>();
+            sc.overrideSorting = true; 
+            sc.sortingOrder = shadowOrder;
         }
     }
 }
