@@ -221,7 +221,7 @@ public void UpdateDragOrder(DragPiece draggedPiece)
 public void RefreshSortingOrdersFromList()
 {
     // Start from 0 for placed pieces (they go to the back)
-    int placedOrder = 0;
+    int placedOrder = 1;
     // Start from a high number for unplaced/dragged pieces (they go to the front)
     int unplacedOrder = 1000;
     
@@ -1094,7 +1094,7 @@ public void RemoveFromDragOrder(DragPiece drag)
     // Add to PuzzleManager.cs
     public void ResetAllSortingOrders()
     {
-        int order = 0;
+        int order = 1;
         foreach (var piece in allPieces)
         {
             if (piece != null)

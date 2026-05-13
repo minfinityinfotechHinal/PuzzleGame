@@ -120,7 +120,7 @@ public class DragPiece : MonoBehaviour,
                 shadowCanvasGroup = piece.shadowImage.gameObject.AddComponent<CanvasGroup>();
         }
 
-        if (ghostImage != null)    ghostImage.SetActive(false);
+        if (ghostImage != null) ghostImage.SetActive(false);
         if (particleObject != null) particleObject.SetActive(false);
 
         pieceHalfSize = rectTransform.sizeDelta * 0.5f;
@@ -181,8 +181,8 @@ public class DragPiece : MonoBehaviour,
 
         dragInitiated = true;
         originalParentBeforeDrag = transform.parent;
-        originalSiblingIndex     = rectTransform.GetSiblingIndex();
-        originalParent           = transform.parent;
+        originalSiblingIndex = rectTransform.GetSiblingIndex();
+        originalParent = transform.parent;
         originalAnchoredPosition = rectTransform.anchoredPosition;
 
         // Single-piece world offset
@@ -201,13 +201,13 @@ public class DragPiece : MonoBehaviour,
                 PuzzleManager.Instance.UpdateDragOrder(this);
 
             if (!piece.group.isPlacedGroup)
+            {
+                if (transform.parent == PuzzleManager.Instance.bottomParent ||
+                    originalParentBeforeDrag == PuzzleManager.Instance.bottomParent)
                 {
-                    if (transform.parent == PuzzleManager.Instance.bottomParent ||
-                        originalParentBeforeDrag == PuzzleManager.Instance.bottomParent)
-                    {
-                        PuzzleManager.Instance.RemoveFromBottomWithoutFill(gameObject);
-                    }
+                    PuzzleManager.Instance.RemoveFromBottomWithoutFill(gameObject);
                 }
+            }
         }
     }
 
@@ -262,11 +262,11 @@ public class DragPiece : MonoBehaviour,
 
             Vector3 worldPos = rectTransform.position;
             transform.SetParent(PuzzleManager.Instance.pieceParent, true);
-            rectTransform.position   = worldPos;
+            rectTransform.position = worldPos;
             rectTransform.localScale = Vector3.one;
             transform.SetAsLastSibling();
 
-            parentChanged   = true;
+            parentChanged = true;
             isDraggingPiece = true;
 
             // Recalculate offsets after reparent
@@ -353,79 +353,79 @@ public class DragPiece : MonoBehaviour,
     // =========================================================
 
     private void PlacePieceImmediate()
-{
-    if (piece == null || piece.group == null) return;
-
-    PuzzleGroup group = piece.group;
-    List<DragPiece> newlyPlaced = new List<DragPiece>();
-
-    foreach (PuzzlePiece p in group.pieces)
     {
-        DragPiece drag = p.GetComponent<DragPiece>();
-        RectTransform rect = p.GetComponent<RectTransform>();
-        if (drag == null || rect == null) continue;
+        if (piece == null || piece.group == null) return;
 
-        if (drag.isPlaced)
+        PuzzleGroup group = piece.group;
+        List<DragPiece> newlyPlaced = new List<DragPiece>();
+
+        foreach (PuzzlePiece p in group.pieces)
         {
+            DragPiece drag = p.GetComponent<DragPiece>();
+            RectTransform rect = p.GetComponent<RectTransform>();
+            if (drag == null || rect == null) continue;
+
+            if (drag.isPlaced)
+            {
+                drag.canDrag = false;
+                continue;
+            }
+
+            drag.isPlaced = true;
             drag.canDrag = false;
-            continue;
+            drag.parentChanged = true;
+
+            rect.SetParent(PuzzleManager.Instance.pieceParent, false);
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+            rect.anchoredPosition = drag.correctPosition;
+
+            drag.SetPieceSortingOrder(1);
+
+            if (drag.canvasGroup != null)
+            {
+                drag.canvasGroup.blocksRaycasts = false;
+                drag.canvasGroup.alpha = 1f;
+            }
+
+            if (drag.ghostImage != null)
+                drag.ghostImage.SetActive(true);
+
+            rect.DOKill();
+            rect.DOScale(Vector3.one * 1.05f, 0.07f)
+                .OnComplete(() => rect.DOScale(Vector3.one, 0.07f));
+
+            if (drag.particleObject != null)
+            {
+                drag.particleObject.SetActive(true);
+                StartCoroutine(DisableParticleAfterDelay(drag.particleObject, 2f));
+            }
+
+            newlyPlaced.Add(drag);
         }
 
-        drag.isPlaced = true;
-        drag.canDrag = false;
-        drag.parentChanged = true;
+        // ✅ First: register all placements (removes from slots, no rearrange yet)
+        foreach (DragPiece drag in newlyPlaced)
+            PuzzleManager.Instance.OnPiecePlaced(drag);
 
-        rect.SetParent(PuzzleManager.Instance.pieceParent, false);
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot     = new Vector2(0.5f, 0.5f);
-        rect.localScale = Vector3.one;
-        rect.localRotation = Quaternion.identity;
-        rect.anchoredPosition = drag.correctPosition;
+        // ✅ Then: rearrange bottom ONCE after all pieces removed from slots
+        PuzzleManager.Instance.OnGroupPlacementFinished();
 
-        drag.SetPieceSortingOrder(0);
-
-        if (drag.canvasGroup != null)
-        {
-            drag.canvasGroup.blocksRaycasts = false;
-            drag.canvasGroup.alpha = 1f;
-        }
-
-        if (drag.ghostImage != null)
-            drag.ghostImage.SetActive(true);
-
-        rect.DOKill();
-        rect.DOScale(Vector3.one * 1.05f, 0.07f)
-            .OnComplete(() => rect.DOScale(Vector3.one, 0.07f));
-
-        if (drag.particleObject != null)
-        {
-            drag.particleObject.SetActive(true);
-            StartCoroutine(DisableParticleAfterDelay(drag.particleObject, 2f));
-        }
-
-        newlyPlaced.Add(drag);
+        Canvas.ForceUpdateCanvases();
+        CheckCompletion();
     }
-
-    // ✅ First: register all placements (removes from slots, no rearrange yet)
-    foreach (DragPiece drag in newlyPlaced)
-        PuzzleManager.Instance.OnPiecePlaced(drag);
-
-    // ✅ Then: rearrange bottom ONCE after all pieces removed from slots
-    PuzzleManager.Instance.OnGroupPlacementFinished();
-
-    Canvas.ForceUpdateCanvases();
-    CheckCompletion();
-}
     private IEnumerator DisableParticleAfterDelay(GameObject particle, float delay)
-{
-    yield return new WaitForSeconds(delay);
-
-    if (particle != null)
     {
-        particle.SetActive(false);
+        yield return new WaitForSeconds(delay);
+
+        if (particle != null)
+        {
+            particle.SetActive(false);
+        }
     }
-}
     // =========================================================
     // MERGE LOGIC
     // =========================================================
@@ -458,11 +458,11 @@ public class DragPiece : MonoBehaviour,
                     if (nDrag == null)
                         continue;
 
-                // Skip only if BOTH groups are already placed
+                    // Skip only if BOTH groups are already placed
                     if (piece.group.isPlacedGroup &&
                     neighbour.group.isPlacedGroup)
-                     {
-                    continue;
+                    {
+                        continue;
                     }
 
                     if (ArePiecesAligned(groupMember, neighbour))
@@ -496,7 +496,7 @@ public class DragPiece : MonoBehaviour,
             {
                 // Move the piece to its specific correct position
                 rt.anchoredPosition = dp.correctPosition;
-                
+
                 // CRITICAL: Mark as placed so PuzzleManager ignores it
                 dp.isPlaced = true;
                 dp.canDrag = false; // Optional: disable dragging once locked
@@ -534,21 +534,21 @@ public class DragPiece : MonoBehaviour,
     }
 
     private Vector2 ConvertToPieceParentLocal(RectTransform rect)
-{
-    Vector2 localPoint;
-    RectTransformUtility.ScreenPointToLocalPointInRectangle(
-        PuzzleManager.Instance.pieceParent as RectTransform,
-        RectTransformUtility.WorldToScreenPoint(renderCamera, rect.position),
-        renderCamera,
-        out localPoint);
-    return localPoint;
-}
+    {
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            PuzzleManager.Instance.pieceParent as RectTransform,
+            RectTransformUtility.WorldToScreenPoint(renderCamera, rect.position),
+            renderCamera,
+            out localPoint);
+        return localPoint;
+    }
 
     private Vector2 GetIdealOffset(PuzzlePiece from, PuzzlePiece to)
     {
         float cell = PuzzleManager.Instance.cellSize;
-        int dCol   = to.col - from.col;
-        int dRow   = to.row - from.row;
+        int dCol = to.col - from.col;
+        int dRow = to.row - from.row;
 
         if (Mathf.Abs(dCol) + Mathf.Abs(dRow) != 1) return Vector2.zero;
 
@@ -561,210 +561,210 @@ public class DragPiece : MonoBehaviour,
     /// groupToAnchor.Merge(groupToMove) is called — groupToAnchor SURVIVES.
     /// </summary>
     private void SnapExactlyAndMerge(PuzzlePiece moving, PuzzlePiece anchor)
-{
-    PuzzleGroup movingGroup = moving.group;
-    PuzzleGroup anchorGroup = anchor.group;
-
-    if (movingGroup == null || anchorGroup == null || movingGroup == anchorGroup)
-        return;
-
-    bool movingPlaced = movingGroup.isPlacedGroup;
-    bool anchorPlaced = anchorGroup.isPlacedGroup;
-
-    if (movingPlaced && !anchorPlaced)
     {
-        PuzzlePiece tempPiece = moving;
-        moving = anchor;
-        anchor = tempPiece;
+        PuzzleGroup movingGroup = moving.group;
+        PuzzleGroup anchorGroup = anchor.group;
 
-        PuzzleGroup tempGroup = movingGroup;
-        movingGroup = anchorGroup;
-        anchorGroup = tempGroup;
+        if (movingGroup == null || anchorGroup == null || movingGroup == anchorGroup)
+            return;
 
-        movingPlaced = movingGroup.isPlacedGroup;
-        anchorPlaced = anchorGroup.isPlacedGroup;
-    }
+        bool movingPlaced = movingGroup.isPlacedGroup;
+        bool anchorPlaced = anchorGroup.isPlacedGroup;
 
-    DragPiece movingDrag = moving.GetComponent<DragPiece>();
-    DragPiece anchorDrag = anchor.GetComponent<DragPiece>();
-    RectTransform movingRect = moving.GetComponent<RectTransform>();
-    RectTransform anchorRect = anchor.GetComponent<RectTransform>();
-
-    if (movingDrag == null || anchorDrag == null ||
-        movingRect == null || anchorRect == null)
-        return;
-
-    // Calculate delta in world-independent pieceParent space
-    Vector2 movingLocal = ConvertToPieceParentLocal(movingRect);
-    Vector2 anchorLocal = ConvertToPieceParentLocal(anchorRect);
-    Vector2 correctOffset = movingDrag.correctPosition - anchorDrag.correctPosition;
-    Vector2 targetPosition = anchorLocal + correctOffset;
-    Vector2 delta = targetPosition - movingLocal;
-
-    // Move moving group pieces
-    List<PuzzlePiece> movingSnapshot = new List<PuzzlePiece>(movingGroup.pieces);
-    foreach (PuzzlePiece p in movingSnapshot)
-    {
-        DragPiece pDrag = p.GetComponent<DragPiece>();
-        RectTransform r = p.GetComponent<RectTransform>();
-        if (r == null) continue;
-
-        // ✅ Skip already placed pieces — never move them
-        if (pDrag != null && pDrag.isPlaced) continue;
-
-        // ✅ Capture world-space position BEFORE any parent/anchor change
-        Vector2 posInPieceParent = ConvertToPieceParentLocal(r);
-
-        // ✅ Reparent to pieceParent if needed
-        if (r.parent != PuzzleManager.Instance.pieceParent)
-            r.SetParent(PuzzleManager.Instance.pieceParent, false);
-
-        // ✅ Normalize anchors to (0.5, 0.5) — required for correctPosition to work
-        r.anchorMin = new Vector2(0.5f, 0.5f);
-        r.anchorMax = new Vector2(0.5f, 0.5f);
-        r.pivot     = new Vector2(0.5f, 0.5f);
-        r.localScale = Vector3.one;
-
-        // ✅ Restore captured position THEN apply delta — both in same space
-        r.anchoredPosition = posInPieceParent + delta;
-    }
-
-    // Merge groups
-    anchorGroup.Merge(movingGroup);
-    piece.group = anchorGroup;
-
-    // Lock newly joined pieces if merging with a placed group
-   if (anchorPlaced || movingPlaced)
-{
-    anchorGroup.isPlacedGroup = true;
-    List<DragPiece> newlyPlaced = new List<DragPiece>();
-
-    foreach (PuzzlePiece p in anchorGroup.pieces)
-    {
-        DragPiece drag = p.GetComponent<DragPiece>();
-        RectTransform rect = p.GetComponent<RectTransform>();
-        if (drag == null || rect == null) continue;
-
-        if (drag.isPlaced)
+        if (movingPlaced && !anchorPlaced)
         {
-            drag.canDrag = false;
-            continue;
+            PuzzlePiece tempPiece = moving;
+            moving = anchor;
+            anchor = tempPiece;
+
+            PuzzleGroup tempGroup = movingGroup;
+            movingGroup = anchorGroup;
+            anchorGroup = tempGroup;
+
+            movingPlaced = movingGroup.isPlacedGroup;
+            anchorPlaced = anchorGroup.isPlacedGroup;
         }
 
-        drag.isPlaced = true;
-        drag.canDrag = false;
-        drag.parentChanged = true;
+        DragPiece movingDrag = moving.GetComponent<DragPiece>();
+        DragPiece anchorDrag = anchor.GetComponent<DragPiece>();
+        RectTransform movingRect = moving.GetComponent<RectTransform>();
+        RectTransform anchorRect = anchor.GetComponent<RectTransform>();
 
-        rect.SetParent(PuzzleManager.Instance.pieceParent, false);
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot     = new Vector2(0.5f, 0.5f);
-        rect.localScale = Vector3.one;
-        rect.localRotation = Quaternion.identity;
-        rect.anchoredPosition = drag.correctPosition;
+        if (movingDrag == null || anchorDrag == null ||
+            movingRect == null || anchorRect == null)
+            return;
 
-        if (drag.canvasGroup != null)
-            drag.canvasGroup.blocksRaycasts = false;
-        if (drag.ghostImage != null)
-            drag.ghostImage.SetActive(true);
+        // Calculate delta in world-independent pieceParent space
+        Vector2 movingLocal = ConvertToPieceParentLocal(movingRect);
+        Vector2 anchorLocal = ConvertToPieceParentLocal(anchorRect);
+        Vector2 correctOffset = movingDrag.correctPosition - anchorDrag.correctPosition;
+        Vector2 targetPosition = anchorLocal + correctOffset;
+        Vector2 delta = targetPosition - movingLocal;
 
-        newlyPlaced.Add(drag);
+        // Move moving group pieces
+        List<PuzzlePiece> movingSnapshot = new List<PuzzlePiece>(movingGroup.pieces);
+        foreach (PuzzlePiece p in movingSnapshot)
+        {
+            DragPiece pDrag = p.GetComponent<DragPiece>();
+            RectTransform r = p.GetComponent<RectTransform>();
+            if (r == null) continue;
+
+            // ✅ Skip already placed pieces — never move them
+            if (pDrag != null && pDrag.isPlaced) continue;
+
+            // ✅ Capture world-space position BEFORE any parent/anchor change
+            Vector2 posInPieceParent = ConvertToPieceParentLocal(r);
+
+            // ✅ Reparent to pieceParent if needed
+            if (r.parent != PuzzleManager.Instance.pieceParent)
+                r.SetParent(PuzzleManager.Instance.pieceParent, false);
+
+            // ✅ Normalize anchors to (0.5, 0.5) — required for correctPosition to work
+            r.anchorMin = new Vector2(0.5f, 0.5f);
+            r.anchorMax = new Vector2(0.5f, 0.5f);
+            r.pivot = new Vector2(0.5f, 0.5f);
+            r.localScale = Vector3.one;
+
+            // ✅ Restore captured position THEN apply delta — both in same space
+            r.anchoredPosition = posInPieceParent + delta;
+        }
+
+        // Merge groups
+        anchorGroup.Merge(movingGroup);
+        piece.group = anchorGroup;
+
+        // Lock newly joined pieces if merging with a placed group
+        if (anchorPlaced || movingPlaced)
+        {
+            anchorGroup.isPlacedGroup = true;
+            List<DragPiece> newlyPlaced = new List<DragPiece>();
+
+            foreach (PuzzlePiece p in anchorGroup.pieces)
+            {
+                DragPiece drag = p.GetComponent<DragPiece>();
+                RectTransform rect = p.GetComponent<RectTransform>();
+                if (drag == null || rect == null) continue;
+
+                if (drag.isPlaced)
+                {
+                    drag.canDrag = false;
+                    continue;
+                }
+
+                drag.isPlaced = true;
+                drag.canDrag = false;
+                drag.parentChanged = true;
+
+                rect.SetParent(PuzzleManager.Instance.pieceParent, false);
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.localScale = Vector3.one;
+                rect.localRotation = Quaternion.identity;
+                rect.anchoredPosition = drag.correctPosition;
+
+                if (drag.canvasGroup != null)
+                    drag.canvasGroup.blocksRaycasts = false;
+                if (drag.ghostImage != null)
+                    drag.ghostImage.SetActive(true);
+
+                newlyPlaced.Add(drag);
+            }
+
+            // ✅ Register all, then rearrange once
+            foreach (DragPiece drag in newlyPlaced)
+                PuzzleManager.Instance.OnPiecePlaced(drag);
+
+            PuzzleManager.Instance.OnGroupPlacementFinished();
+
+            Canvas.ForceUpdateCanvases();
+            CheckCompletion();
+            return;
+        }
+        if (anchorPlaced || movingPlaced)
+        {
+            anchorGroup.isPlacedGroup = true;
+            List<DragPiece> newlyPlaced = new List<DragPiece>();
+
+            foreach (PuzzlePiece p in anchorGroup.pieces)
+            {
+                DragPiece drag = p.GetComponent<DragPiece>();
+                RectTransform rect = p.GetComponent<RectTransform>();
+                if (drag == null || rect == null) continue;
+
+                if (drag.isPlaced)
+                {
+                    drag.canDrag = false;
+                    continue;
+                }
+
+                drag.isPlaced = true;
+                drag.canDrag = false;
+                drag.parentChanged = true;
+
+                rect.SetParent(PuzzleManager.Instance.pieceParent, false);
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.localScale = Vector3.one;
+                rect.localRotation = Quaternion.identity;
+                rect.anchoredPosition = drag.correctPosition;
+
+                if (drag.canvasGroup != null)
+                    drag.canvasGroup.blocksRaycasts = false;
+                if (drag.ghostImage != null)
+                    drag.ghostImage.SetActive(true);
+
+                newlyPlaced.Add(drag);
+            }
+
+            // ✅ Register all, then rearrange once
+            foreach (DragPiece drag in newlyPlaced)
+                PuzzleManager.Instance.OnPiecePlaced(drag);
+
+            PuzzleManager.Instance.OnGroupPlacementFinished();
+
+            Canvas.ForceUpdateCanvases();
+            CheckCompletion();
+            return;
+        }
+
+        PuzzleManager.Instance.BringGroupToFront(anchorGroup);
+        CheckGroupSnapAfterMerge(anchorGroup);
     }
 
-    // ✅ Register all, then rearrange once
-    foreach (DragPiece drag in newlyPlaced)
-        PuzzleManager.Instance.OnPiecePlaced(drag);
 
-    PuzzleManager.Instance.OnGroupPlacementFinished();
 
-    Canvas.ForceUpdateCanvases();
-    CheckCompletion();
-    return;
-    }
-    if (anchorPlaced || movingPlaced)
+    private void CheckGroupSnapAfterMerge(PuzzleGroup mergedGroup)
     {
-        anchorGroup.isPlacedGroup = true;
-        List<DragPiece> newlyPlaced = new List<DragPiece>();
+        if (mergedGroup == null) return;
 
-        foreach (PuzzlePiece p in anchorGroup.pieces)
+        bool allCorrect = true;
+
+        foreach (PuzzlePiece p in mergedGroup.pieces)
         {
             DragPiece drag = p.GetComponent<DragPiece>();
             RectTransform rect = p.GetComponent<RectTransform>();
             if (drag == null || rect == null) continue;
 
-            if (drag.isPlaced)
+            // ✅ Use ConvertToPieceParentLocal — safe regardless of parent
+            Vector2 pieceLocal = ConvertToPieceParentLocal(rect);
+            float dist = Vector2.Distance(pieceLocal, drag.correctPosition);
+
+            if (dist > snapThreshold)
             {
-                drag.canDrag = false;
-                continue;
+                allCorrect = false;
+                break;
             }
-
-            drag.isPlaced = true;
-            drag.canDrag = false;
-            drag.parentChanged = true;
-
-            rect.SetParent(PuzzleManager.Instance.pieceParent, false);
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot     = new Vector2(0.5f, 0.5f);
-            rect.localScale = Vector3.one;
-            rect.localRotation = Quaternion.identity;
-            rect.anchoredPosition = drag.correctPosition;
-
-            if (drag.canvasGroup != null)
-                drag.canvasGroup.blocksRaycasts = false;
-            if (drag.ghostImage != null)
-                drag.ghostImage.SetActive(true);
-
-            newlyPlaced.Add(drag);
         }
 
-        // ✅ Register all, then rearrange once
-        foreach (DragPiece drag in newlyPlaced)
-            PuzzleManager.Instance.OnPiecePlaced(drag);
-
-        PuzzleManager.Instance.OnGroupPlacementFinished();
-
-        Canvas.ForceUpdateCanvases();
-        CheckCompletion();
-        return;
-    }
-
-    PuzzleManager.Instance.BringGroupToFront(anchorGroup);
-    CheckGroupSnapAfterMerge(anchorGroup);
-}
-
-
-
- private void CheckGroupSnapAfterMerge(PuzzleGroup mergedGroup)
-{
-    if (mergedGroup == null) return;
-
-    bool allCorrect = true;
-
-    foreach (PuzzlePiece p in mergedGroup.pieces)
-    {
-        DragPiece drag = p.GetComponent<DragPiece>();
-        RectTransform rect = p.GetComponent<RectTransform>();
-        if (drag == null || rect == null) continue;
-
-        // ✅ Use ConvertToPieceParentLocal — safe regardless of parent
-        Vector2 pieceLocal = ConvertToPieceParentLocal(rect);
-        float dist = Vector2.Distance(pieceLocal, drag.correctPosition);
-
-        if (dist > snapThreshold)
+        if (allCorrect)
         {
-            allCorrect = false;
-            break;
+            mergedGroup.isPlacedGroup = true;
+            piece = mergedGroup.anchorPiece;
+            PlacePieceImmediate();
         }
     }
-
-    if (allCorrect)
-    {
-        mergedGroup.isPlacedGroup = true;
-        piece = mergedGroup.anchorPiece;
-        PlacePieceImmediate();
-    }
-}
 
     private void MergeWithNeighbours()
     {
@@ -859,7 +859,7 @@ public class DragPiece : MonoBehaviour,
     {
         if (scrollRect != null)
         {
-            scrollRect.enabled  = true;
+            scrollRect.enabled = true;
             scrollRect.velocity = Vector2.zero;
         }
     }
@@ -893,7 +893,7 @@ public class DragPiece : MonoBehaviour,
     public void ResetPiece()
     {
         isPlaced = false;
-        canDrag  = true;
+        canDrag = true;
         parentChanged = transform.parent == PuzzleManager.Instance.pieceParent;
 
         if (canvasGroup != null)
@@ -926,7 +926,7 @@ public class DragPiece : MonoBehaviour,
                 gameObject.AddComponent<GraphicRaycaster>();
         }
         mc.overrideSorting = true;
-        mc.sortingOrder    = baseOrder;
+        mc.sortingOrder = baseOrder;
 
         if (piece != null && piece.shadowImage != null)
         {
@@ -934,7 +934,7 @@ public class DragPiece : MonoBehaviour,
             if (sc == null)
                 sc = piece.shadowImage.gameObject.AddComponent<Canvas>();
             sc.overrideSorting = true;
-            sc.sortingOrder    = baseOrder + 1;
+            sc.sortingOrder = baseOrder + 1;
         }
     }
 }
