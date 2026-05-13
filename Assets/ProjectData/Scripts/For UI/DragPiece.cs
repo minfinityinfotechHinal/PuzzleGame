@@ -38,7 +38,7 @@ public class DragPiece : MonoBehaviour,
 
     [SerializeField] private RectTransform bottomPanel;
 
-    private bool parentChanged = false;
+    public bool parentChanged = false;
 
     // Group drag: track pointer's LOCAL position each frame and move all
     // group pieces by the delta.  Allows grabbing from any piece in the group.
