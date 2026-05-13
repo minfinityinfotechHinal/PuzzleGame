@@ -295,6 +295,7 @@ MonoBehaviour:
   bottomPanel: {fileID: 931934448}
   dragParent: {fileID: 41782810}
   boardRectTransform: {fileID: 476196174}
+  snapThreshold: 50
 --- !u!114 &24558424
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2766,6 +2767,7 @@ MonoBehaviour:
   bottomPanel: {fileID: 0}
   dragParent: {fileID: 0}
   boardRectTransform: {fileID: 0}
+  snapThreshold: 50
 --- !u!1 &1005590367
 GameObject:
   m_ObjectHideFlags: 0
@@ -8218,7 +8220,7 @@ Canvas:
   m_AdditionalShaderChannelsFlag: 0
   m_UpdateRectTransformForStandalone: 0
   m_SortingLayerID: 0
-  m_SortingOrder: 3
+  m_SortingOrder: 300
   m_TargetDisplay: 0
 --- !u!224 &9211169785083487621
 RectTransform:

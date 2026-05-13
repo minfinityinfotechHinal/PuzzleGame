@@ -552,6 +552,7 @@ private void SubtleBounce(Button button)
     }
 }
 
+    // In PowerUpButtons.cs - Fix GetIncorrectPieces()
     private List<PuzzlePiece> GetIncorrectPieces()
     {
         List<PuzzlePiece> incorrectPieces = new List<PuzzlePiece>();
@@ -561,24 +562,22 @@ private void SubtleBounce(Button button)
             DragPiece drag = piece.GetComponent<DragPiece>();
             RectTransform rect = piece.GetComponent<RectTransform>();
 
-            // Skip pieces that are null
             if (drag == null || rect == null) continue;
+            
+            // ✅ SKIP: Pieces that are individually placed
+            if (drag.isPlaced) continue;
+            
+            // ✅ SKIP: Pieces belonging to placed groups
+            if (piece.group != null && piece.group.isPlacedGroup) continue;
             
             // Skip pieces not in puzzle area (still in bottom panel)
             if (rect.parent != PuzzleManager.Instance.pieceParent) continue;
-            
-            // Skip pieces that are correctly placed (snapped)
-            if (drag.isPlaced) continue;
 
-            // Check if piece is at its correct position
             float distance = Vector2.Distance(rect.anchoredPosition, drag.correctPosition);
             
-            // If piece is not within snap threshold, it's incorrect
-            // Use a smaller threshold to catch more incorrect pieces
             if (distance > drag.snapThreshold * 0.5f)
             {
                 incorrectPieces.Add(piece);
-                Debug.Log($"🗑️ Found incorrect piece: {piece.name}, distance: {distance:F1}, threshold: {drag.snapThreshold * 0.3f:F1}");
             }
         }
 

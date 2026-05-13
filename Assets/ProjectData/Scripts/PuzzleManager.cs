@@ -507,31 +507,67 @@ public void RemoveFromDragOrder(DragPiece drag)
         RearrangeBottom();
         FillFromOverflow();
     }
+    // ✅ FIXED: RearrangeBottom should skip placed/grouped pieces
     void RearrangeBottom()
-{
-    List<GameObject> valid = new List<GameObject>();
-
-    foreach (var p in slotPieces)
-        if (p != null)
-            valid.Add(p);
-
-    for (int i = 0; i < maxVisible; i++)
-        slotPieces[i] = null;
-
-    for (int i = 0; i < valid.Count; i++)
     {
-        // Reset scale before rearranging
-        RectTransform rect = valid[i].GetComponent<RectTransform>();
-        if (rect != null)
+        List<GameObject> valid = new List<GameObject>();
+
+        foreach (var p in slotPieces)
         {
-            rect.localScale = Vector3.one;
+            if (p == null) continue;
+            
+            // ✅ Skip if destroyed
+            if (p == null || !p) continue;
+
+            DragPiece drag = p.GetComponent<DragPiece>();
+            PuzzlePiece pp = p.GetComponent<PuzzlePiece>();
+            
+            // ✅ Skip placed pieces
+            if (drag != null && drag.isPlaced) continue;
+            
+            // ✅ Skip pieces in placed groups
+            if (pp != null && pp.group != null && pp.group.isPlacedGroup) continue;
+            
+            // ✅ Skip pieces not in bottomParent (they're on the board)
+            if (p.transform.parent != bottomParent) continue;
+
+            valid.Add(p);
         }
-        valid[i].SetActive(true);
+
+        for (int i = 0; i < maxVisible; i++)
+            slotPieces[i] = null;
+
+        for (int i = 0; i < valid.Count; i++)
+        {
+            RectTransform rect = valid[i].GetComponent<RectTransform>();
+            if (rect != null)
+                rect.localScale = Vector3.one;
+
+            valid[i].SetActive(true);
+            slotPieces[i] = valid[i];
+            StartCoroutine(MoveToSlot(valid[i], i));
+        }
         
-        slotPieces[i] = valid[i];
-        StartCoroutine(MoveToSlot(valid[i], i));
+        // Clean bottomPieces list
+        for (int i = bottomPieces.Count - 1; i >= 0; i--)
+        {
+            if (bottomPieces[i] == null || !bottomPieces[i])
+            {
+                bottomPieces.RemoveAt(i);
+                continue;
+            }
+            
+            DragPiece drag = bottomPieces[i].GetComponent<DragPiece>();
+            PuzzlePiece pp = bottomPieces[i].GetComponent<PuzzlePiece>();
+            
+            if ((drag != null && drag.isPlaced) ||
+                (pp != null && pp.group != null && pp.group.isPlacedGroup) ||
+                bottomPieces[i].transform.parent != bottomParent)
+            {
+                bottomPieces.RemoveAt(i);
+            }
+        }
     }
-}
 
     void FillFromOverflow()
 {
@@ -721,12 +757,48 @@ public void RemoveFromDragOrder(DragPiece drag)
         }
     }
 
+    // In PuzzleManager.cs - Fix MoveToBottom() to allow initial scatter
+
     public void MoveToBottom(GameObject piece)
     {
+        // ✅ GUARD: Never move placed or grouped pieces to bottom
+        if (piece == null) return;
+        
+        PuzzlePiece puzzlePiece = piece.GetComponent<PuzzlePiece>();
+        DragPiece drag = piece.GetComponent<DragPiece>();
+        
+        // Check if piece is placed
+        if (drag != null && drag.isPlaced)
+        {
+            Debug.LogWarning($"⚠️ BLOCKED: Cannot move placed piece {piece.name} to bottom panel");
+            return;
+        }
+        
+        // Check if piece belongs to a placed group
+        if (puzzlePiece != null && puzzlePiece.group != null && puzzlePiece.group.isPlacedGroup)
+        {
+            Debug.LogWarning($"⚠️ BLOCKED: Cannot move group-placed piece {piece.name} to bottom panel");
+            return;
+        }
+        
+        // ✅ FIX: Only block if piece is ALREADY in pieceParent AND is placed/grouped
+        // Don't block if we're doing the initial scatter (piece hasn't been placed yet)
+        // The above checks already handle placed/grouped pieces, so we can remove the parent check
+        // Or make it more specific:
+        
+        // ✅ REPLACE THIS BLOCK:
+        // if (piece.transform.parent == pieceParent)
+        // {
+        //     Debug.LogWarning($"⚠️ BLOCKED: Cannot move piece {piece.name} from board to bottom panel");
+        //     return;
+        // }
+        
+        // ✅ WITH THIS: Only block if piece is on the board AND placed/grouped
+        // (already handled by the checks above, so we can just remove this block entirely)
+
         RectTransform rect = piece.GetComponent<RectTransform>();
         rect.SetParent(bottomParent, true);
         
-        PuzzlePiece puzzlePiece = piece.GetComponent<PuzzlePiece>();
         if (puzzlePiece != null)
         {
             if (puzzlePiece.group != null)
@@ -736,8 +808,6 @@ public void RemoveFromDragOrder(DragPiece drag)
             
             puzzlePiece.group = new PuzzleGroup();
             puzzlePiece.group.AddPiece(puzzlePiece);
-            
-           // Debug.Log($"🔄 {piece.name} reset to independent group in bottom tray");
         }
 
         int slot = GetEmptySlot();
@@ -756,81 +826,209 @@ public void RemoveFromDragOrder(DragPiece drag)
     }
 
     IEnumerator MoveToSlot(GameObject piece, int index)
-{
-    RectTransform rect = piece.GetComponent<RectTransform>();
-
-    // FIX: Ensure scale is 1 before animating
-    rect.localScale = Vector3.one;
-    piece.SetActive(true);
-
-    Vector2 start = rect.anchoredPosition;
-    Vector2 target = new Vector2(index * spacing, 0);
-
-    float t = 0;
-
-    while (t < 1)
     {
-        t += Time.deltaTime * moveSpeed;
-        rect.anchoredPosition = Vector2.Lerp(start, target, t);
-        yield return null;
+        RectTransform rect = piece.GetComponent<RectTransform>();
+        DragPiece drag = piece.GetComponent<DragPiece>();
+
+        // ✅ Abort if already placed
+        if (drag != null && drag.isPlaced) yield break;
+
+        rect.localScale = Vector3.one;
+        piece.SetActive(true);
+
+        Vector2 start = rect.anchoredPosition;
+        Vector2 target = new Vector2(index * spacing, 0);
+
+        float t = 0;
+        while (t < 1)
+        {
+            if (drag != null && drag.isPlaced) yield break; // ✅ Check every frame
+            t += Time.deltaTime * moveSpeed;
+            rect.anchoredPosition = Vector2.Lerp(start, target, t);
+            yield return null;
+        }
+
+        if (drag != null && drag.isPlaced) yield break; // ✅ Final check
+        rect.anchoredPosition = target;
+        if (drag != null) drag.canDrag = true;
     }
-
-    rect.anchoredPosition = target;
-
-    DragPiece drag = piece.GetComponent<DragPiece>();
-    if (drag != null) drag.canDrag = true;
-}
 
     IEnumerator MoveToOverflow(GameObject piece)
-{
-    RectTransform rect = piece.GetComponent<RectTransform>();
-
-    Vector2 start = rect.anchoredPosition;
-
-    float x = (maxVisible + overflowIndex) * spacing;
-    Vector2 finalTarget = new Vector2(x, 0);
-
-    overflowIndex++;
-
-    float t = 0f;
-
-    while (t < 1f)
     {
-        t += Time.deltaTime * moveSpeed;
-        rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
-        yield return null;
+        RectTransform rect = piece.GetComponent<RectTransform>();
+
+        Vector2 start = rect.anchoredPosition;
+
+        float x = (maxVisible + overflowIndex) * spacing;
+        Vector2 finalTarget = new Vector2(x, 0);
+
+        overflowIndex++;
+
+        float t = 0f;
+
+        while (t < 1f)
+        {
+            t += Time.deltaTime * moveSpeed;
+            rect.anchoredPosition = Vector2.Lerp(start, overflowTarget.anchoredPosition, t);
+            yield return null;
+        }
+
+        rect.anchoredPosition = finalTarget;
+        // rect.localScale = Vector3.zero; // Scale to 0 when hidden
+        // piece.SetActive(false);
     }
 
-    rect.anchoredPosition = finalTarget;
-    // rect.localScale = Vector3.zero; // Scale to 0 when hidden
-    // piece.SetActive(false);
-}
+        int GetEmptySlot()
+        {
+            for (int i = 0; i < maxVisible; i++)
+                if (slotPieces[i] == null)
+                    return i;
 
-    int GetEmptySlot()
+            return -1;
+        }
+
+        // ✅ FIXED: OnPiecePlaced should also clean bottom tracking
+        public void OnPiecePlaced(DragPiece piece)
+        {
+            if (piece == null) return;
+            
+            PuzzlePiece p = piece.GetComponent<PuzzlePiece>();
+            if (p != null && !placedPiecesSet.Contains(p))
+            {
+                placedPiecesSet.Add(p);
+                placedCount++;
+            }
+
+            // ✅ Remove from ALL bottom tracking
+            int index = System.Array.IndexOf(slotPieces, piece.gameObject);
+            if (index >= 0)
+            {
+                Debug.Log($"🔧 Removing placed piece {piece.name} from slot {index}");
+                slotPieces[index] = null;
+            }
+
+            bottomPieces.Remove(piece.gameObject);
+
+            // ✅ Remove from drag order
+            if (dragOrderList.Contains(piece))
+                dragOrderList.Remove(piece);
+
+            Debug.Log($"📊 Placed: {placedCount}/{totalPieces}");
+        }
+
+
+        // ✅ FIXED: OnGroupPlacementFinished() - Clean placed pieces before rearranging
+        public void OnGroupPlacementFinished()
+        {
+            // ✅ ADD THIS: Remove any placed group pieces from bottom tracking FIRST
+            CleanPlacedPiecesFromBottomSlots();
+            
+            RearrangeBottom();
+            FillFromOverflow();
+            RefreshSortingOrdersFromList();
+
+            if (placedCount >= totalPieces)
+                OnPuzzleComplete();
+        }
+
+        // ✅ NEW METHOD: Remove placed group pieces from bottom slots and list
+    private void CleanPlacedPiecesFromBottomSlots()
     {
         for (int i = 0; i < maxVisible; i++)
-            if (slotPieces[i] == null)
-                return i;
-
-        return -1;
-    }
-
-    public void OnPiecePlaced(DragPiece piece)
-    {
-        PuzzlePiece p = piece.GetComponent<PuzzlePiece>();
-        if (p != null && !placedPiecesSet.Contains(p))
         {
-            placedPiecesSet.Add(p);
-            placedCount++;
+            if (slotPieces[i] != null)
+            {
+                PuzzlePiece pp = slotPieces[i].GetComponent<PuzzlePiece>();
+                DragPiece drag = slotPieces[i].GetComponent<DragPiece>();
+                
+                bool shouldRemove = false;
+                
+                // Check if piece is individually placed
+                if (drag != null && drag.isPlaced)
+                    shouldRemove = true;
+                
+                // Check if piece belongs to a placed group
+                if (pp != null && pp.group != null && pp.group.isPlacedGroup)
+                    shouldRemove = true;
+                
+                // ✅ CHECK: If piece is now child of pieceParent (not bottomParent)
+                if (slotPieces[i].transform.parent == pieceParent)
+                    shouldRemove = true;
+                
+                if (shouldRemove)
+                {
+                    Debug.Log($"🧹 Cleaning placed/grouped piece {slotPieces[i].name} from slot {i}");
+                    bottomPieces.Remove(slotPieces[i]);
+                    slotPieces[i] = null;
+                }
+            }
         }
         
-        RemoveFromBottom(piece.gameObject);
+        // Clean placed pieces from bottomPieces list (not in slots but in list)
+        for (int i = bottomPieces.Count - 1; i >= 0; i--)
+        {
+            if (bottomPieces[i] == null)
+            {
+                bottomPieces.RemoveAt(i);
+                continue;
+            }
+            
+            PuzzlePiece pp = bottomPieces[i].GetComponent<PuzzlePiece>();
+            DragPiece drag = bottomPieces[i].GetComponent<DragPiece>();
+            
+            bool shouldRemove = false;
+            
+            if (drag != null && drag.isPlaced)
+                shouldRemove = true;
+            
+            if (pp != null && pp.group != null && pp.group.isPlacedGroup)
+                shouldRemove = true;
+            
+            if (bottomPieces[i].transform.parent == pieceParent)
+                shouldRemove = true;
+            
+            if (shouldRemove)
+            {
+                Debug.Log($"🧹 Cleaning placed/grouped piece {bottomPieces[i].name} from bottomPieces list");
+                bottomPieces.RemoveAt(i);
+            }
+        }
         
-        Debug.Log($"📊 Placed: {placedCount}/{totalPieces}");
-        
-        if (placedCount >= totalPieces)
-            OnPuzzleComplete();
+        // Clean placed pieces from overflow queue
+        Queue<GameObject> cleanedQueue = new Queue<GameObject>();
+        while (overflowQueue.Count > 0)
+        {
+            GameObject piece = overflowQueue.Dequeue();
+            
+            if (piece == null) continue;
+            
+            PuzzlePiece pp = piece.GetComponent<PuzzlePiece>();
+            DragPiece drag = piece.GetComponent<DragPiece>();
+            
+            bool isPlacedOrGrouped = false;
+            
+            if (drag != null && drag.isPlaced)
+                isPlacedOrGrouped = true;
+            
+            if (pp != null && pp.group != null && pp.group.isPlacedGroup)
+                isPlacedOrGrouped = true;
+            
+            if (piece.transform.parent == pieceParent)
+                isPlacedOrGrouped = true;
+            
+            if (!isPlacedOrGrouped)
+            {
+                cleanedQueue.Enqueue(piece);
+            }
+            else
+            {
+                Debug.Log($"🧹 Removing placed/grouped piece {piece.name} from overflow queue");
+            }
+        }
+        overflowQueue = cleanedQueue;
+        overflowIndex = cleanedQueue.Count;
     }
+
 
     // Call this after any group placement or merge
     public void UpdateAllPiecesSortingOrder()
@@ -1078,51 +1276,63 @@ public void RemoveFromDragOrder(DragPiece drag)
     }
 
     // Add this method to PuzzleManager class (put it near other public methods)
+    // ✅ FIXED: ForceRearrangeBottom should also clean placed pieces
     public void ForceRearrangeBottom()
-{
-    // Collect all currently active pieces in bottom parent
-    List<GameObject> activePieces = new List<GameObject>();
-    
-    for (int i = 0; i < maxVisible; i++)
     {
-        if (slotPieces[i] != null && slotPieces[i].activeSelf)
-        {
-            activePieces.Add(slotPieces[i]);
-        }
-    }
-
-    // Clear slots
-    for (int i = 0; i < maxVisible; i++)
-    {
-        slotPieces[i] = null;
-    }
-
-    // Reassign active pieces to correct slot positions
-    for (int i = 0; i < activePieces.Count && i < maxVisible; i++)
-    {
-        slotPieces[i] = activePieces[i];
+        // First, clean placed pieces
+        CleanPlacedPiecesFromBottomSlots();
         
-        RectTransform rect = activePieces[i].GetComponent<RectTransform>();
-        if (rect != null)
-        {
-            rect.SetParent(bottomParent, false);
-            rect.anchoredPosition = new Vector2(i * spacing, 0);
-            rect.localScale = Vector3.one; // ENSURE SCALE IS 1
-            activePieces[i].SetActive(true);
-        }
+        // Collect all currently active pieces in bottom parent
+        List<GameObject> activePieces = new List<GameObject>();
         
-        DragPiece drag = activePieces[i].GetComponent<DragPiece>();
-        if (drag != null)
+        for (int i = 0; i < maxVisible; i++)
         {
-            drag.canDrag = true;
+            if (slotPieces[i] != null && slotPieces[i].activeSelf)
+            {
+                DragPiece drag = slotPieces[i].GetComponent<DragPiece>();
+                PuzzlePiece pp = slotPieces[i].GetComponent<PuzzlePiece>();
+                
+                // Skip placed/grouped pieces
+                if ((drag != null && drag.isPlaced) ||
+                    (pp != null && pp.group != null && pp.group.isPlacedGroup))
+                    continue;
+                
+                activePieces.Add(slotPieces[i]);
+            }
         }
-    }
 
-    // Fill any empty slots from overflow
-    FillFromOverflow();
-    
-    Debug.Log($"📋 Rearranged bottom: {activePieces.Count} pieces visible, overflow queue: {overflowQueue.Count}");
-}
+        // Clear slots
+        for (int i = 0; i < maxVisible; i++)
+        {
+            slotPieces[i] = null;
+        }
+
+        // Reassign active pieces to correct slot positions
+        for (int i = 0; i < activePieces.Count && i < maxVisible; i++)
+        {
+            slotPieces[i] = activePieces[i];
+            
+            RectTransform rect = activePieces[i].GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                rect.SetParent(bottomParent, false);
+                rect.anchoredPosition = new Vector2(i * spacing, 0);
+                rect.localScale = Vector3.one;
+                activePieces[i].SetActive(true);
+            }
+            
+            DragPiece drag = activePieces[i].GetComponent<DragPiece>();
+            if (drag != null)
+            {
+                drag.canDrag = true;
+            }
+        }
+
+        // Fill any empty slots from overflow
+        FillFromOverflow();
+        
+        Debug.Log($"📋 Rearranged bottom: {activePieces.Count} pieces visible, overflow queue: {overflowQueue.Count}");
+    }
 
     void ResetCompletePanel()
     {
