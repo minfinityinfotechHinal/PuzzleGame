@@ -388,11 +388,13 @@ public class PowerUpButtons : MonoBehaviour
     {
         isShuffling = true;
 
-        // Collect ALL pieces in bottom panel
+        // Collect ALL bottom pieces
         List<GameObject> allBottomPieces = new List<GameObject>();
+
         foreach (Transform child in PuzzleManager.Instance.bottomParent)
         {
             DragPiece drag = child.GetComponent<DragPiece>();
+
             if (drag != null && !drag.isPlaced)
                 allBottomPieces.Add(child.gameObject);
         }
@@ -403,105 +405,109 @@ public class PowerUpButtons : MonoBehaviour
             yield break;
         }
 
-        // Shuffle
+        // =========================
+        // SHUFFLE LIST
+        // =========================
         for (int i = allBottomPieces.Count - 1; i > 0; i--)
         {
             int j = Random.Range(0, i + 1);
+
             GameObject temp = allBottomPieces[i];
             allBottomPieces[i] = allBottomPieces[j];
             allBottomPieces[j] = temp;
         }
 
-        // Split visible/hidden
-        int maxVisible = 6;
-        List<GameObject> newVisible = new List<GameObject>();
-        List<GameObject> newHidden = new List<GameObject>();
-
-        for (int i = 0; i < allBottomPieces.Count; i++)
+        // =========================
+        // SCALE DOWN ALL
+        // =========================
+        foreach (var piece in allBottomPieces)
         {
-            if (i < maxVisible)
-                newVisible.Add(allBottomPieces[i]);
-            else
-                newHidden.Add(allBottomPieces[i]);
-        }
+            RectTransform rect = piece.GetComponent<RectTransform>();
 
-        // PHASE 1: Scale down visible pieces
-        foreach (Transform child in PuzzleManager.Instance.bottomParent)
-        {
-            if (child.gameObject.activeSelf)
+            if (rect != null)
             {
-                RectTransform rect = child.GetComponent<RectTransform>();
-                if (rect != null)
-                {
-                    rect.DOKill();
-                    rect.DOScale(Vector3.zero, shuffleDuration * 0.4f).SetEase(Ease.InBack);
-                }
+                rect.DOKill();
+                rect.DOScale(Vector3.zero, shuffleDuration * 0.4f)
+                    .SetEase(Ease.InBack);
             }
         }
 
         yield return new WaitForSeconds(shuffleDuration * 0.5f);
 
-        // PHASE 2: Deactivate all, then position
-        foreach (var piece in allBottomPieces)
-            piece.SetActive(false);
-
-        for (int i = 0; i < newVisible.Count; i++)
+        // =========================
+        // REPOSITION ALL
+        // =========================
+        for (int i = 0; i < allBottomPieces.Count; i++)
         {
-            RectTransform rect = newVisible[i].GetComponent<RectTransform>();
-            DragPiece drag = newVisible[i].GetComponent<DragPiece>();
-            
-            if (rect != null)
-            {
-                rect.SetParent(PuzzleManager.Instance.bottomParent, false);
-                rect.anchoredPosition = new Vector2(i * PuzzleManager.Instance.spacing, 0);
-                rect.localScale = Vector3.zero;
-                newVisible[i].SetActive(true);
-                if (drag != null) drag.canDrag = true;
-            }
-        }
+            GameObject piece = allBottomPieces[i];
 
-        float overflowX = maxVisible * PuzzleManager.Instance.spacing;
-        for (int i = 0; i < newHidden.Count; i++)
-        {
-            RectTransform rect = newHidden[i].GetComponent<RectTransform>();
-            DragPiece drag = newHidden[i].GetComponent<DragPiece>();
-            
-            if (rect != null)
+            RectTransform rect = piece.GetComponent<RectTransform>();
+            DragPiece drag = piece.GetComponent<DragPiece>();
+
+            if (rect == null) continue;
+
+            rect.SetParent(PuzzleManager.Instance.bottomParent, false);
+
+            // Position ALL pieces
+            rect.anchoredPosition =
+                new Vector2(i * PuzzleManager.Instance.spacing, 0);
+
+            rect.localScale = Vector3.zero;
+
+            // KEEP ALL ACTIVE
+            piece.SetActive(true);
+
+            // Only first 6 draggable
+            if (drag != null)
             {
-                rect.SetParent(PuzzleManager.Instance.bottomParent, false);
-                rect.anchoredPosition = new Vector2(overflowX + (i * PuzzleManager.Instance.spacing), 0);
-                rect.localScale = Vector3.zero;
-                newHidden[i].SetActive(false);
-                if (drag != null) drag.canDrag = false;
+                drag.canDrag = (i < 6);
             }
         }
 
         yield return new WaitForSeconds(0.05f);
 
-        // PHASE 3: Scale up with stagger
-        for (int i = 0; i < newVisible.Count; i++)
+        // =========================
+        // SCALE UP ALL TOGETHER
+        // =========================
+        foreach (var piece in allBottomPieces)
         {
-            RectTransform rect = newVisible[i].GetComponent<RectTransform>();
+            RectTransform rect = piece.GetComponent<RectTransform>();
+
             if (rect != null)
             {
                 rect.DOKill();
-                rect.DOScale(Vector3.one, shuffleDuration * 0.5f)
-                    .SetEase(Ease.OutBack)
-                    .SetDelay(i * shuffleDelay);
+
+                rect.DOScale(Vector3.one,
+                        shuffleDuration * 0.5f)
+                    .SetEase(Ease.OutBack);
             }
         }
 
-        yield return new WaitForSeconds(shuffleDuration * 0.5f + (newVisible.Count * shuffleDelay));
+        yield return new WaitForSeconds(shuffleDuration * 0.5f);
 
-        // PHASE 4: Update PuzzleManager
-        if (PuzzleManager.Instance != null)
+        // =========================
+        // UPDATE SLOT DATA
+        // =========================
+        List<GameObject> visible = new List<GameObject>();
+        List<GameObject> hidden = new List<GameObject>();
+
+        for (int i = 0; i < allBottomPieces.Count; i++)
         {
-            PuzzleManager.Instance.UpdateSlotPiecesAfterShuffleWithOverflow(newVisible, newHidden);
-            PuzzleManager.Instance.ForceRearrangeBottom();
+            if (i < 6)
+                visible.Add(allBottomPieces[i]);
+            else
+                hidden.Add(allBottomPieces[i]);
         }
 
+        PuzzleManager.Instance.UpdateSlotPiecesAfterShuffleWithOverflow(
+            visible,
+            hidden);
+
+        PuzzleManager.Instance.ForceRearrangeBottom();
+
         isShuffling = false;
-        Debug.Log($"🔀 Shuffle done! Visible: {newVisible.Count}, Hidden: {newHidden.Count}");
+
+        Debug.Log("🔀 Full simultaneous shuffle complete!");
     }
 
     // ============================================
