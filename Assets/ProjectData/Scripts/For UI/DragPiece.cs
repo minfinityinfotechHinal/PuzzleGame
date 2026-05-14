@@ -96,6 +96,11 @@ public class DragPiece : MonoBehaviour,
     private Transform originalParentBeforeDrag;
     private int originalSiblingIndex;
 
+    // ✅ CLIPPING FIX: tracks whether piece lives in the bottom scroll panel.
+    // While true → overrideSorting stays FALSE so RectMask2D can clip the piece.
+    // While false → overrideSorting is TRUE so sorting orders work on the board.
+    private bool isInBottomPanel = false;
+
     // =========================================================
     // AWAKE / START
     // =========================================================
@@ -221,6 +226,9 @@ public class DragPiece : MonoBehaviour,
         worldOffset = rectTransform.position - ScreenToWorldPoint(eventData.position);
         ScreenToLocalInPieceParent(eventData.position, out prevPointerLocal);
 
+        // ✅ CLIPPING FIX: board pieces always need overrideSorting ON
+        SetCanvasOverride(true);
+
         canvasGroup.blocksRaycasts = true;
 
         if (PuzzleManager.Instance != null)
@@ -289,6 +297,14 @@ public class DragPiece : MonoBehaviour,
 
                 parentChanged   = true;
                 isDraggingPiece = true;
+
+                // ✅ FIX: Enable canvas override now that piece left the ScrollRect
+                SetCanvasOverride(true);
+
+                // ✅ Restore alpha — LateUpdate clipper only runs for bottomParent children
+                if (canvasGroup != null) canvasGroup.alpha = 1f;
+                if (piece != null && piece.shadowImage != null && shadowCanvasGroup != null)
+                    shadowCanvasGroup.alpha = 1f;
 
                 // Re-seed offsets now that we have a new parent
                 worldOffset = rectTransform.position - ScreenToWorldPoint(eventData.position);
@@ -375,12 +391,20 @@ public class DragPiece : MonoBehaviour,
             parentChanged   = true;
             isDraggingPiece = true;
 
+            // ✅ FIX: Enable canvas override now that piece left the ScrollRect
+            SetCanvasOverride(true);
+
+            // ✅ Restore alpha — LateUpdate clipper only runs for bottomParent children
+            if (canvasGroup != null) canvasGroup.alpha = 1f;
+            if (piece != null && piece.shadowImage != null && shadowCanvasGroup != null)
+                shadowCanvasGroup.alpha = 1f;
+
             // Recalculate offsets after reparent
             worldOffset = rectTransform.position - ScreenToWorldPoint(eventData.position);
             ScreenToLocalInPieceParent(eventData.position, out prevPointerLocal);
         }
 
-        // ── NORMAL DRAG ────────────────────────────────────────────────────
+       // ── NORMAL DRAG ────────────────────────────────────────────────────
         if (parentChanged && isDraggingPiece)
         {
             bool isGroup = piece.group != null && piece.group.pieces.Count > 1;
@@ -389,14 +413,19 @@ public class DragPiece : MonoBehaviour,
             {
                 // Single piece: world-offset approach (no jump)
                 rectTransform.position = ScreenToWorldPoint(eventData.position) + worldOffset;
+                
+                // ✅ CLAMP to screen bounds
+                ClampToScreen(rectTransform);
             }
             else
             {
                 // GROUP: pointer-delta approach.
-                // We translate ALL pieces by (currentLocal - prevLocal) so it
-                // doesn't matter which piece in the cluster the user grabbed.
                 ScreenToLocalInPieceParent(eventData.position, out Vector2 currentLocal);
                 Vector2 delta = currentLocal - prevPointerLocal;
+                
+                // ✅ CLAMP delta so group doesn't go off screen
+                delta = ClampGroupDelta(delta);
+                
                 prevPointerLocal = currentLocal;
                 piece.group.Move(delta);
             }
@@ -410,6 +439,61 @@ public class DragPiece : MonoBehaviour,
             }
         }
     }
+
+    private void ClampToScreen(RectTransform rect)
+{
+    Vector2 screenSize = new Vector2(Screen.width, Screen.height);
+    
+    // Convert world position to screen position
+    Vector2 screenPos = RectTransformUtility.WorldToScreenPoint(renderCamera, rect.position);
+    
+    // Get piece size in screen pixels
+    Vector2 sizeDelta = rect.sizeDelta;
+    float halfW = (sizeDelta.x * rect.lossyScale.x) * 0.5f;
+    float halfH = (sizeDelta.y * rect.lossyScale.y) * 0.5f;
+    
+    // Clamp within screen with padding
+    screenPos.x = Mathf.Clamp(screenPos.x, halfW + screenEdgePadding, screenSize.x - halfW - screenEdgePadding);
+    screenPos.y = Mathf.Clamp(screenPos.y, halfH + bottomPadding,      screenSize.y - halfH - topPadding);
+    
+    // Convert back to world position
+    Vector3 clampedWorld;
+    RectTransformUtility.ScreenPointToWorldPointInRectangle(
+        canvasRectTransform, screenPos, renderCamera, out clampedWorld);
+    rect.position = clampedWorld;
+}
+
+private Vector2 ClampGroupDelta(Vector2 proposedDelta)
+{
+    if (piece.group == null) return proposedDelta;
+
+    Vector2 screenSize = new Vector2(Screen.width, Screen.height);
+
+    foreach (PuzzlePiece p in piece.group.pieces)
+    {
+        RectTransform r = p.GetComponent<RectTransform>();
+        if (r == null) continue;
+
+        Vector2 screenPos = RectTransformUtility.WorldToScreenPoint(renderCamera, r.position);
+        float halfW = (r.sizeDelta.x * r.lossyScale.x) * 0.5f;
+        float halfH = (r.sizeDelta.y * r.lossyScale.y) * 0.5f;
+
+        // Convert proposed delta (local space) to screen space delta
+        // by checking if the resulting position would go out of bounds
+        float minX = halfW + screenEdgePadding;
+        float maxX = screenSize.x - halfW - screenEdgePadding;
+        float minY = halfH + bottomPadding;
+        float maxY = screenSize.y - halfH - topPadding;
+
+        // If already out of bounds in a direction, block delta in that direction
+        if (screenPos.x < minX) proposedDelta.x = Mathf.Max(proposedDelta.x, 0);
+        if (screenPos.x > maxX) proposedDelta.x = Mathf.Min(proposedDelta.x, 0);
+        if (screenPos.y < minY) proposedDelta.y = Mathf.Max(proposedDelta.y, 0);
+        if (screenPos.y > maxY) proposedDelta.y = Mathf.Min(proposedDelta.y, 0);
+    }
+
+    return proposedDelta;
+}
 
     // =========================================================
     // END DRAG
@@ -490,6 +574,9 @@ public class DragPiece : MonoBehaviour,
             rect.localRotation = Quaternion.identity;
             rect.anchoredPosition = drag.correctPosition;
 
+            // ✅ FIX: Piece is now on the board — enable overrideSorting so
+            // sorting orders and stencil rendering work correctly.
+            drag.SetCanvasOverride(true);
             drag.SetPieceSortingOrder(1);
 
             if (drag.canvasGroup != null)
@@ -599,6 +686,8 @@ public class DragPiece : MonoBehaviour,
                 dp.isPlaced = true;
                 dp.canDrag = false;
                 rt.SetParent(PuzzleManager.Instance.pieceParent);
+                // ✅ FIX: Enable overrideSorting when placed on board
+                dp.SetCanvasOverride(true);
             }
         }
 
@@ -742,6 +831,9 @@ public class DragPiece : MonoBehaviour,
                 rect.localScale = Vector3.one;
                 rect.localRotation = Quaternion.identity;
                 rect.anchoredPosition = drag.correctPosition;
+
+                // ✅ FIX: Enable overrideSorting now that piece is on the board
+                drag.SetCanvasOverride(true);
 
                 if (drag.canvasGroup != null)
                     drag.canvasGroup.blocksRaycasts = false;
@@ -913,7 +1005,11 @@ public class DragPiece : MonoBehaviour,
         if (pc == null)
         {
             pc = gameObject.AddComponent<Canvas>();
-            pc.overrideSorting = true;
+            // ✅ CLIPPING FIX: Start with overrideSorting OFF.
+            // Pieces begin life in pieceParent (before scatter to bottom),
+            // and SetCanvasOverride / SetPieceSortingOrder will enable it
+            // correctly once they are on the board.
+            pc.overrideSorting = false;
         }
         if (GetComponent<GraphicRaycaster>() == null)
             gameObject.AddComponent<GraphicRaycaster>();
@@ -945,25 +1041,57 @@ public class DragPiece : MonoBehaviour,
             PuzzleManager.Instance.ShowCompletionCanvas();
     }
 
-    public void SetPieceSortingOrder(int baseOrder)
-    {
-        Canvas mc = GetComponent<Canvas>();
-        if (mc == null)
-        {
-            mc = gameObject.AddComponent<Canvas>();
-            if (GetComponent<GraphicRaycaster>() == null)
-                gameObject.AddComponent<GraphicRaycaster>();
-        }
-        mc.overrideSorting = true;
-        mc.sortingOrder = baseOrder;
+    /// <summary>
+    /// Called by PuzzleManager whenever it sends a piece TO the bottom panel.
+    /// Sets isInBottomPanel = true and turns overrideSorting OFF on both
+    /// the piece Canvas and the shadow Canvas so RectMask2D can clip them.
+    /// </summary>
+  public void SetCanvasOverride(bool enable)
+{
+    isInBottomPanel = !enable;
 
-        if (piece != null && piece.shadowImage != null)
+    Canvas pc = GetComponent<Canvas>();
+    if (pc != null)
+        pc.overrideSorting = enable;
+
+    // ✅ Shadow always inherits — never gets its own overrideSorting
+    if (piece != null && piece.shadowImage != null)
+    {
+        Canvas sc = piece.shadowImage.GetComponent<Canvas>();
+        if (sc != null)
+            sc.overrideSorting = false; // always inherit, never override
+    }
+}
+
+    /// <summary>
+    /// Sets the Canvas sortingOrder for this piece and its shadow.
+    /// SKIPPED while the piece is in the bottom panel (isInBottomPanel == true)
+    /// so that RectMask2D clipping is never broken by a sorting-order refresh.
+    /// </summary>
+    public void SetPieceSortingOrder(int baseOrder)
+{
+    if (isInBottomPanel) return;
+
+    Canvas mc = GetComponent<Canvas>();
+    if (mc == null)
+    {
+        mc = gameObject.AddComponent<Canvas>();
+        if (GetComponent<GraphicRaycaster>() == null)
+            gameObject.AddComponent<GraphicRaycaster>();
+    }
+    mc.overrideSorting = true;
+    mc.sortingOrder = baseOrder;
+
+    // ✅ SHADOW FIX: Remove the shadow's own Canvas entirely.
+    // Let it inherit from the piece's Canvas so stencil/mask is preserved.
+    if (piece != null && piece.shadowImage != null)
+    {
+        Canvas sc = piece.shadowImage.GetComponent<Canvas>();
+        if (sc != null)
         {
-            Canvas sc = piece.shadowImage.GetComponent<Canvas>();
-            if (sc == null)
-                sc = piece.shadowImage.gameObject.AddComponent<Canvas>();
-            sc.overrideSorting = true;
-            sc.sortingOrder = baseOrder + 1;
+            sc.overrideSorting = false; // ← inherit from parent piece Canvas
+            // Do NOT set sortingOrder here — let parent handle it
         }
     }
+}
 }

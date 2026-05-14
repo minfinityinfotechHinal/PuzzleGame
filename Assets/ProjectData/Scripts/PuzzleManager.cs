@@ -106,6 +106,60 @@ public class PuzzleManager : MonoBehaviour
             completionCanvas.SetActive(false);
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // VIEWPORT CLIPPER
+    // Hides pieces whose CENTER is outside the viewport bounds.
+    // Using center (not full rect) means the moment a piece scrolls past
+    // the edge, the whole piece disappears — no partial bleed-through.
+    // ─────────────────────────────────────────────────────────────────────
+    void LateUpdate()
+    {
+        if (scrollRect == null || scrollRect.viewport == null) return;
+        if (bottomParent == null) return;
+
+        // Get viewport world-space bounds once per frame
+        RectTransform vp = scrollRect.viewport;
+        Vector3[] vpCorners = new Vector3[4];
+        vp.GetWorldCorners(vpCorners);
+        // corners: 0=BL  1=TL  2=TR  3=BR
+        float vpMinX = vpCorners[0].x;
+        float vpMaxX = vpCorners[2].x;
+        float vpMinY = vpCorners[0].y;
+        float vpMaxY = vpCorners[1].y;
+
+        for (int i = 0; i < bottomParent.childCount; i++)
+        {
+            Transform child = bottomParent.GetChild(i);
+            DragPiece drag = child.GetComponent<DragPiece>();
+            if (drag == null) continue;
+
+            RectTransform rt = child as RectTransform;
+            if (rt == null) continue;
+
+            // Use the piece's world-space CENTER for the clip test.
+            // As soon as the center crosses the viewport edge the piece hides.
+            Vector3 center = rt.TransformPoint(rt.rect.center);
+
+            bool outside = center.x < vpMinX || center.x > vpMaxX ||
+                           center.y < vpMinY || center.y > vpMaxY;
+
+            float targetAlpha = outside ? 0f : 1f;
+
+            // Piece CanvasGroup
+            if (drag.canvasGroup != null)
+                drag.canvasGroup.alpha = targetAlpha;
+
+            // Shadow CanvasGroup
+            PuzzlePiece pp = child.GetComponent<PuzzlePiece>();
+            if (pp != null && pp.shadowImage != null)
+            {
+                CanvasGroup sg = pp.shadowImage.GetComponent<CanvasGroup>();
+                if (sg != null) sg.alpha = targetAlpha;
+            }
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     // --------------------------------------------------
     public void StartLevel(int targetRows, int targetCols)
     {
@@ -329,6 +383,7 @@ public void RemoveFromDragOrder(DragPiece drag)
         if (drag != null)
         {
             drag.canDrag = true; // ✅ Visible pieces always draggable
+            drag.SetCanvasOverride(false); // ✅ CLIPPING FIX
         }
     }
     
@@ -349,6 +404,7 @@ public void RemoveFromDragOrder(DragPiece drag)
         if (drag != null)
         {
             drag.canDrag = true; // ✅ OVERFLOW PIECES ALSO DRAGGABLE
+            drag.SetCanvasOverride(false); // ✅ CLIPPING FIX
         }
         
         overflowQueue.Enqueue(piece);
@@ -579,6 +635,10 @@ public void RemoveFromDragOrder(DragPiece drag)
 
             piece.SetActive(true);
             piece.transform.SetParent(bottomParent, true);
+
+            // ✅ FIX: Disable canvas override for clipping
+            DragPiece dragFill = piece.GetComponent<DragPiece>();
+            if (dragFill != null) dragFill.SetCanvasOverride(false);
             
             // FIX: Ensure scale is set to 1 when bringing from overflow
             RectTransform rect = piece.GetComponent<RectTransform>();
@@ -638,6 +698,9 @@ public void RemoveFromDragOrder(DragPiece drag)
         {
             drag.canDrag = true; // Start as false, becomes true after scatter
             
+            // ✅ CLIPPING FIX: pieces spawn on the board → overrideSorting ON
+            drag.SetCanvasOverride(true);
+
             // ✅ CRITICAL: Store position relative to pieceParent
             // This is the anchored position when the piece is a child of pieceParent
             drag.correctPosition = initialAnchoredPos;
@@ -798,6 +861,11 @@ public void RemoveFromDragOrder(DragPiece drag)
 
         RectTransform rect = piece.GetComponent<RectTransform>();
         rect.SetParent(bottomParent, true);
+
+        // ✅ FIX: Disable canvas override so RectMask2D can clip this piece
+        // inside the scroll view. It will be re-enabled when lifted out.
+        if (drag != null)
+            drag.SetCanvasOverride(false);
         
         if (puzzlePiece != null)
         {
@@ -1325,6 +1393,7 @@ public void RemoveFromDragOrder(DragPiece drag)
             if (drag != null)
             {
                 drag.canDrag = true;
+                drag.SetCanvasOverride(false); // ✅ CLIPPING FIX
             }
         }
 
